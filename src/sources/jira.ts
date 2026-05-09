@@ -7,22 +7,16 @@ import type {
 } from "../types.ts";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
-interface CollectAtlassianOptions {
+interface CollectJiraOptions {
   manager: McpClientManager;
   serverConfig: McpServerConfig;
   window: CollectionWindow;
-  jiraUsername: string;
-  jiraBaseUrl: string;
-  confluenceBaseUrl?: string;
+  username: string;
+  baseUrl: string;
 }
 
 interface JiraInvocation {
   jql: string;
-  type: string;
-}
-
-interface ConfluenceInvocation {
-  cql: string;
   type: string;
 }
 
@@ -53,24 +47,20 @@ function getNumber(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
-function extractItemsFromStructured(
+function extractIssuesFromStructured(
   structured: unknown,
-  key: string,
 ): unknown[] | undefined {
   if (!isRecord(structured)) {
     return undefined;
   }
-  const items = structured[key];
+  const items = structured["issues"];
   if (Array.isArray(items)) {
     return items;
   }
   return undefined;
 }
 
-function extractItemsFromContent(
-  content: unknown,
-  key: string,
-): unknown[] | undefined {
+function extractIssuesFromContent(content: unknown): unknown[] | undefined {
   if (!Array.isArray(content)) {
     return undefined;
   }
@@ -90,8 +80,8 @@ function extractItemsFromContent(
       if (Array.isArray(parsed)) {
         return parsed;
       }
-      if (isRecord(parsed) && Array.isArray(parsed[key])) {
-        return parsed[key] as unknown[];
+      if (isRecord(parsed) && Array.isArray(parsed["issues"])) {
+        return parsed["issues"] as unknown[];
       }
       return undefined;
     } catch {
@@ -101,15 +91,15 @@ function extractItemsFromContent(
   return undefined;
 }
 
-function parseToolResult(raw: unknown, key: string): unknown[] {
+function parseToolResult(raw: unknown): unknown[] {
   if (!isRecord(raw)) {
     return [];
   }
-  const structured = extractItemsFromStructured(raw["structuredContent"], key);
+  const structured = extractIssuesFromStructured(raw["structuredContent"]);
   if (structured !== undefined) {
     return structured;
   }
-  const fromContent = extractItemsFromContent(raw["content"], key);
+  const fromContent = extractIssuesFromContent(raw["content"]);
   if (fromContent !== undefined) {
     return fromContent;
   }
@@ -250,7 +240,7 @@ async function runJiraInvocation(
     const raw = await manager.callTool(client, "jira_search", {
       jql: invocation.jql,
     });
-    const issues = parseToolResult(raw, "issues");
+    const issues = parseToolResult(raw);
     const shaped: ActivityItem[] = [];
     for (const entry of issues) {
       const item = shaper(entry);
@@ -268,162 +258,26 @@ async function runJiraInvocation(
   }
 }
 
-function extractSpaceName(raw: Record<string, unknown>): string | undefined {
-  const space = raw["space"];
-  if (!isRecord(space)) {
-    return undefined;
-  }
-  return getString(space["name"]);
-}
-
-function resolvePageUrl(
-  raw: Record<string, unknown>,
-  baseUrl: string,
-): string | undefined {
-  const direct = getString(raw["url"]);
-  if (direct !== undefined) {
-    return direct;
-  }
-  const links = raw["_links"];
-  if (isRecord(links)) {
-    const webui = getString(links["webui"]);
-    if (webui !== undefined) {
-      const trimmed = baseUrl.replace(/\/+$/, "");
-      const path = webui.startsWith("/") ? webui : `/${webui}`;
-      return `${trimmed}${path}`;
-    }
-  }
-  return undefined;
-}
-
-function shapeConfluencePage(
-  type: string,
-  baseUrl: string,
-): (raw: unknown) => ActivityItem | null {
-  return (raw: unknown): ActivityItem | null => {
-    if (!isRecord(raw)) {
-      return null;
-    }
-    const title = getString(raw["title"]);
-    if (title === undefined) {
-      return null;
-    }
-
-    const item: ActivityItem = { type, title };
-
-    const url = resolvePageUrl(raw, baseUrl);
-    if (url !== undefined) {
-      item.url = url;
-    }
-
-    const spaceName = extractSpaceName(raw);
-    if (spaceName !== undefined) {
-      item.spaceName = spaceName;
-    }
-
-    return item;
-  };
-}
-
-function buildConfluenceInvocations(
-  username: string,
-  window: CollectionWindow,
-): ConfluenceInvocation[] {
-  const from = formatDate(window.from);
-  const to = formatDate(window.to);
-  return [
-    {
-      cql: `type = page AND creator = "${username}" AND created >= "${from}" AND created <= "${to}"`,
-      type: "page_created",
-    },
-    {
-      cql: `type = page AND contributor = "${username}" AND lastmodified >= "${from}" AND lastmodified <= "${to}"`,
-      type: "page_edited",
-    },
-  ];
-}
-
-async function runConfluenceInvocation(
-  manager: McpClientManager,
-  client: Client,
-  invocation: ConfluenceInvocation,
-  baseUrl: string,
+export async function collectJiraActivity(
+  options: CollectJiraOptions,
 ): Promise<ActivityItem[]> {
-  const shaper = shapeConfluencePage(invocation.type, baseUrl);
-  try {
-    const raw = await manager.callTool(client, "confluence_search", {
-      query: invocation.cql,
-    });
-    const pages = parseToolResult(raw, "results");
-    const shaped: ActivityItem[] = [];
-    for (const entry of pages) {
-      const item = shaper(entry);
-      if (item !== null) {
-        shaped.push(item);
-      }
-    }
-    return shaped;
-  } catch (error) {
-    logger.warn(
-      `Confluence tool "confluence_search" (${invocation.type}) failed`,
-      errorMessage(error),
-    );
-    return [];
-  }
-}
-
-export async function collectAtlassianActivity(
-  options: CollectAtlassianOptions,
-): Promise<ActivityItem[]> {
-  const {
-    manager,
-    serverConfig,
-    window,
-    jiraUsername,
-    jiraBaseUrl,
-    confluenceBaseUrl,
-  } = options;
+  const { manager, serverConfig, window, username, baseUrl } = options;
 
   let client: Client;
   try {
     client = await manager.connect(serverConfig);
   } catch (error) {
-    logger.error(
-      "Failed to connect to Atlassian MCP server",
-      errorMessage(error),
-    );
+    logger.error("Failed to connect to Jira MCP server", errorMessage(error));
     return [];
   }
 
+  const invocations = buildJiraInvocations(username, window);
   const activities: ActivityItem[] = [];
-
-  const jiraInvocations = buildJiraInvocations(jiraUsername, window);
-  for (const invocation of jiraInvocations) {
-    const items = await runJiraInvocation(
-      manager,
-      client,
-      invocation,
-      jiraBaseUrl,
-    );
+  for (const invocation of invocations) {
+    const items = await runJiraInvocation(manager, client, invocation, baseUrl);
     activities.push(...items);
   }
 
-  if (confluenceBaseUrl !== undefined) {
-    const confluenceInvocations = buildConfluenceInvocations(
-      jiraUsername,
-      window,
-    );
-    for (const invocation of confluenceInvocations) {
-      const items = await runConfluenceInvocation(
-        manager,
-        client,
-        invocation,
-        confluenceBaseUrl,
-      );
-      activities.push(...items);
-    }
-  }
-
-  logger.info(`Collected ${activities.length} Atlassian activity item(s)`);
+  logger.info(`Collected ${activities.length} Jira activity item(s)`);
   return activities;
 }

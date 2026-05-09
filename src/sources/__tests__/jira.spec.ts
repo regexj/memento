@@ -1,7 +1,7 @@
 import { logger } from "../../logger.ts";
 import type { McpClientManager } from "../../mcp.ts";
 import type { CollectionWindow, McpServerConfig } from "../../types.ts";
-import { collectAtlassianActivity } from "../atlassian.ts";
+import { collectJiraActivity } from "../jira.ts";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -43,11 +43,11 @@ const SERVER_CONFIG: McpServerConfig = {
   toolCalls: [],
 };
 
-const JIRA_USERNAME = "alice";
-const JIRA_BASE_URL = "https://example.atlassian.net";
+const USERNAME = "alice";
+const BASE_URL = "https://example.atlassian.net";
 const FAKE_CLIENT = { id: "client" } as unknown as Client;
 
-describe("collectAtlassianActivity — happy path", () => {
+describe("collectJiraActivity — happy path", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -122,12 +122,12 @@ describe("collectAtlassianActivity — happy path", () => {
       },
     );
 
-    const result = await collectAtlassianActivity({
+    const result = await collectJiraActivity({
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: JIRA_BASE_URL,
+      username: USERNAME,
+      baseUrl: BASE_URL,
     });
 
     expect(manager.connect).toHaveBeenCalledWith(SERVER_CONFIG);
@@ -200,11 +200,11 @@ describe("collectAtlassianActivity — happy path", () => {
     ]);
 
     expect(logger.info).toHaveBeenCalledWith(
-      "Collected 4 Atlassian activity item(s)",
+      "Collected 4 Jira activity item(s)",
     );
   });
 
-  it("trims trailing slashes from the jira base URL when building ticket URLs", async () => {
+  it("trims trailing slashes from the base URL when building ticket URLs", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation(
@@ -219,12 +219,12 @@ describe("collectAtlassianActivity — happy path", () => {
       },
     );
 
-    const result = await collectAtlassianActivity({
+    const result = await collectJiraActivity({
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: "https://example.atlassian.net///",
+      username: USERNAME,
+      baseUrl: "https://example.atlassian.net///",
     });
 
     const first = result[0];
@@ -232,7 +232,7 @@ describe("collectAtlassianActivity — happy path", () => {
   });
 });
 
-describe("collectAtlassianActivity — connection failures", () => {
+describe("collectJiraActivity — connection failures", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -241,18 +241,18 @@ describe("collectAtlassianActivity — connection failures", () => {
     const manager = makeManager();
     manager.connect.mockRejectedValue(new Error("unreachable"));
 
-    const result = await collectAtlassianActivity({
+    const result = await collectJiraActivity({
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: JIRA_BASE_URL,
+      username: USERNAME,
+      baseUrl: BASE_URL,
     });
 
     expect(result).toEqual([]);
     expect(manager.callTool).not.toHaveBeenCalled();
     expect(logger.error).toHaveBeenCalledWith(
-      "Failed to connect to Atlassian MCP server",
+      "Failed to connect to Jira MCP server",
       "unreachable",
     );
   });
@@ -261,23 +261,23 @@ describe("collectAtlassianActivity — connection failures", () => {
     const manager = makeManager();
     manager.connect.mockRejectedValue("raw string");
 
-    const result = await collectAtlassianActivity({
+    const result = await collectJiraActivity({
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: JIRA_BASE_URL,
+      username: USERNAME,
+      baseUrl: BASE_URL,
     });
 
     expect(result).toEqual([]);
     expect(logger.error).toHaveBeenCalledWith(
-      "Failed to connect to Atlassian MCP server",
+      "Failed to connect to Jira MCP server",
       "raw string",
     );
   });
 });
 
-describe("collectAtlassianActivity — tool call failures", () => {
+describe("collectJiraActivity — tool call failures", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -294,12 +294,12 @@ describe("collectAtlassianActivity — tool call failures", () => {
       return Promise.resolve(textContent([]));
     });
 
-    const result = await collectAtlassianActivity({
+    const result = await collectJiraActivity({
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: JIRA_BASE_URL,
+      username: USERNAME,
+      baseUrl: BASE_URL,
     });
 
     expect(result).toEqual([]);
@@ -322,12 +322,12 @@ describe("collectAtlassianActivity — tool call failures", () => {
       return Promise.resolve(textContent([]));
     });
 
-    const result = await collectAtlassianActivity({
+    const result = await collectJiraActivity({
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: JIRA_BASE_URL,
+      username: USERNAME,
+      baseUrl: BASE_URL,
     });
 
     expect(result).toEqual([]);
@@ -338,7 +338,7 @@ describe("collectAtlassianActivity — tool call failures", () => {
   });
 });
 
-describe("collectAtlassianActivity — response parsing", () => {
+describe("collectJiraActivity — response parsing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -356,12 +356,12 @@ describe("collectAtlassianActivity — response parsing", () => {
       },
     );
 
-    const result = await collectAtlassianActivity({
+    const result = await collectJiraActivity({
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: JIRA_BASE_URL,
+      username: USERNAME,
+      baseUrl: BASE_URL,
     });
 
     return result.filter((item) => item.type === "ticket_completed").length;
@@ -499,10 +499,21 @@ describe("collectAtlassianActivity — response parsing", () => {
   });
 });
 
-describe("collectAtlassianActivity — issue shaping", () => {
+describe("collectJiraActivity — issue shaping", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
+
+  interface ActivityItemSnapshot {
+    type: string;
+    title: string;
+    ticketKey?: string;
+    url?: string;
+    issueType?: string;
+    storyPoints?: number;
+    epicName?: string;
+    metadata?: Record<string, unknown>;
+  }
 
   async function collectFirstCompleted(
     issue: Record<string, unknown>,
@@ -519,27 +530,16 @@ describe("collectAtlassianActivity — issue shaping", () => {
       },
     );
 
-    const result = await collectAtlassianActivity({
+    const result = await collectJiraActivity({
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: JIRA_BASE_URL,
+      username: USERNAME,
+      baseUrl: BASE_URL,
     });
 
     const first = result.find((entry) => entry.type === "ticket_completed");
     return first as ActivityItemSnapshot | undefined;
-  }
-
-  interface ActivityItemSnapshot {
-    type: string;
-    title: string;
-    ticketKey?: string;
-    url?: string;
-    issueType?: string;
-    storyPoints?: number;
-    epicName?: string;
-    metadata?: Record<string, unknown>;
   }
 
   it("drops issues without a key", async () => {
@@ -703,415 +703,5 @@ describe("collectAtlassianActivity — issue shaping", () => {
       fields: { summary: "S", status: { name: 42 } },
     });
     expect(item?.metadata).toBeUndefined();
-  });
-});
-
-const CONFLUENCE_BASE_URL = "https://example.atlassian.net/wiki";
-
-function confluenceTextContent(results: unknown): {
-  content: { type: "text"; text: string }[];
-} {
-  return { content: [{ type: "text", text: JSON.stringify({ results }) }] };
-}
-
-describe("collectAtlassianActivity — Confluence happy path", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("calls confluence_search with the expected CQL and shapes pages into ActivityItems", async () => {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.callTool.mockImplementation(
-      (_client: Client, toolName: string, args: Record<string, unknown>) => {
-        if (toolName === "jira_search") {
-          return Promise.resolve(textContent([]));
-        }
-        expect(toolName).toBe("confluence_search");
-        const cql = args["query"] as string;
-        if (cql.includes("creator =")) {
-          return Promise.resolve(
-            confluenceTextContent([
-              {
-                title: "New onboarding doc",
-                space: { name: "Engineering" },
-                _links: { webui: "/spaces/ENG/pages/123/New-onboarding-doc" },
-              },
-            ]),
-          );
-        }
-        if (cql.includes("contributor =")) {
-          return Promise.resolve(
-            confluenceTextContent([
-              {
-                title: "Updated runbook",
-                space: { name: "Platform" },
-                url: "https://example.atlassian.net/wiki/spaces/PLAT/pages/456/Updated-runbook",
-              },
-            ]),
-          );
-        }
-        return Promise.resolve(confluenceTextContent([]));
-      },
-    );
-
-    const result = await collectAtlassianActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: JIRA_BASE_URL,
-      confluenceBaseUrl: CONFLUENCE_BASE_URL,
-    });
-
-    expect(manager.connect).toHaveBeenCalledTimes(1);
-    expect(manager.callTool).toHaveBeenCalledTimes(6);
-
-    const confluenceCalls = manager.callTool.mock.calls.filter(
-      (call) => call[1] === "confluence_search",
-    );
-    expect(confluenceCalls).toEqual([
-      [
-        FAKE_CLIENT,
-        "confluence_search",
-        {
-          query:
-            'type = page AND creator = "alice" AND created >= "2025-06-01" AND created <= "2025-06-08"',
-        },
-      ],
-      [
-        FAKE_CLIENT,
-        "confluence_search",
-        {
-          query:
-            'type = page AND contributor = "alice" AND lastmodified >= "2025-06-01" AND lastmodified <= "2025-06-08"',
-        },
-      ],
-    ]);
-
-    expect(result).toEqual([
-      {
-        type: "page_created",
-        title: "New onboarding doc",
-        url: "https://example.atlassian.net/wiki/spaces/ENG/pages/123/New-onboarding-doc",
-        spaceName: "Engineering",
-      },
-      {
-        type: "page_edited",
-        title: "Updated runbook",
-        url: "https://example.atlassian.net/wiki/spaces/PLAT/pages/456/Updated-runbook",
-        spaceName: "Platform",
-      },
-    ]);
-
-    expect(logger.info).toHaveBeenCalledWith(
-      "Collected 2 Atlassian activity item(s)",
-    );
-  });
-
-  it("does not call confluence_search when confluenceBaseUrl is not provided", async () => {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.callTool.mockResolvedValue(textContent([]));
-
-    const result = await collectAtlassianActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: JIRA_BASE_URL,
-    });
-
-    expect(result).toEqual([]);
-    expect(manager.callTool).toHaveBeenCalledTimes(4);
-    for (const call of manager.callTool.mock.calls) {
-      expect(call[1]).toBe("jira_search");
-    }
-  });
-
-  it("trims trailing slashes from confluence base URL when building page URLs from webui", async () => {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.callTool.mockImplementation(
-      (_client: Client, toolName: string, args: Record<string, unknown>) => {
-        if (toolName === "jira_search") {
-          return Promise.resolve(textContent([]));
-        }
-        const cql = args["query"] as string;
-        if (cql.includes("creator =")) {
-          return Promise.resolve(
-            confluenceTextContent([
-              {
-                title: "Doc",
-                space: { name: "Engineering" },
-                _links: { webui: "/spaces/ENG/pages/1/Doc" },
-              },
-            ]),
-          );
-        }
-        return Promise.resolve(confluenceTextContent([]));
-      },
-    );
-
-    const result = await collectAtlassianActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: JIRA_BASE_URL,
-      confluenceBaseUrl: "https://example.atlassian.net/wiki///",
-    });
-
-    const page = result.find((item) => item.type === "page_created");
-    expect(page?.url).toBe(
-      "https://example.atlassian.net/wiki/spaces/ENG/pages/1/Doc",
-    );
-  });
-
-  it("prepends a slash to webui when it doesn't already start with one", async () => {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.callTool.mockImplementation(
-      (_client: Client, toolName: string, args: Record<string, unknown>) => {
-        if (toolName === "jira_search") {
-          return Promise.resolve(textContent([]));
-        }
-        const cql = args["query"] as string;
-        if (cql.includes("creator =")) {
-          return Promise.resolve(
-            confluenceTextContent([
-              {
-                title: "Doc",
-                _links: { webui: "spaces/ENG/pages/1/Doc" },
-              },
-            ]),
-          );
-        }
-        return Promise.resolve(confluenceTextContent([]));
-      },
-    );
-
-    const result = await collectAtlassianActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: JIRA_BASE_URL,
-      confluenceBaseUrl: CONFLUENCE_BASE_URL,
-    });
-
-    const page = result.find((item) => item.type === "page_created");
-    expect(page?.url).toBe(
-      "https://example.atlassian.net/wiki/spaces/ENG/pages/1/Doc",
-    );
-  });
-});
-
-describe("collectAtlassianActivity — Confluence tool call failures", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("logs warning and continues when confluence_search throws an Error", async () => {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.callTool.mockImplementation(
-      (_client: Client, toolName: string, args: Record<string, unknown>) => {
-        if (toolName === "jira_search") {
-          return Promise.resolve(textContent([]));
-        }
-        const cql = args["query"] as string;
-        if (cql.includes("creator =")) {
-          return Promise.reject(new Error("confluence down"));
-        }
-        return Promise.resolve(confluenceTextContent([]));
-      },
-    );
-
-    const result = await collectAtlassianActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: JIRA_BASE_URL,
-      confluenceBaseUrl: CONFLUENCE_BASE_URL,
-    });
-
-    expect(result).toEqual([]);
-    expect(manager.callTool).toHaveBeenCalledTimes(6);
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Confluence tool "confluence_search" (page_created) failed',
-      "confluence down",
-    );
-  });
-
-  it("coerces non-Error confluence rejection reasons via String()", async () => {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.callTool.mockImplementation(
-      (_client: Client, toolName: string, args: Record<string, unknown>) => {
-        if (toolName === "jira_search") {
-          return Promise.resolve(textContent([]));
-        }
-        const cql = args["query"] as string;
-        if (cql.includes("creator =")) {
-          return Promise.reject("conf bad");
-        }
-        return Promise.resolve(confluenceTextContent([]));
-      },
-    );
-
-    const result = await collectAtlassianActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: JIRA_BASE_URL,
-      confluenceBaseUrl: CONFLUENCE_BASE_URL,
-    });
-
-    expect(result).toEqual([]);
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Confluence tool "confluence_search" (page_created) failed',
-      "conf bad",
-    );
-  });
-});
-
-describe("collectAtlassianActivity — Confluence page shaping", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  interface ConfluenceSnapshot {
-    type: string;
-    title: string;
-    url?: string;
-    spaceName?: string;
-  }
-
-  async function collectFirstCreated(
-    page: unknown,
-  ): Promise<ConfluenceSnapshot | undefined> {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.callTool.mockImplementation(
-      (_client: Client, toolName: string, args: Record<string, unknown>) => {
-        if (toolName === "jira_search") {
-          return Promise.resolve(textContent([]));
-        }
-        const cql = args["query"] as string;
-        if (cql.includes("creator =")) {
-          return Promise.resolve(confluenceTextContent([page]));
-        }
-        return Promise.resolve(confluenceTextContent([]));
-      },
-    );
-
-    const result = await collectAtlassianActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: JIRA_BASE_URL,
-      confluenceBaseUrl: CONFLUENCE_BASE_URL,
-    });
-
-    const first = result.find((entry) => entry.type === "page_created");
-    return first as ConfluenceSnapshot | undefined;
-  }
-
-  it("drops page entries that are not objects", async () => {
-    const item = await collectFirstCreated("not an object");
-    expect(item).toBeUndefined();
-  });
-
-  it("drops pages without a title", async () => {
-    const item = await collectFirstCreated({ space: { name: "ENG" } });
-    expect(item).toBeUndefined();
-  });
-
-  it("drops pages whose title is not a string", async () => {
-    const item = await collectFirstCreated({ title: 42 });
-    expect(item).toBeUndefined();
-  });
-
-  it("prefers a direct url field over webui link", async () => {
-    const item = await collectFirstCreated({
-      title: "T",
-      url: "https://direct.example.com/page",
-      _links: { webui: "/should/not/be/used" },
-    });
-    expect(item?.url).toBe("https://direct.example.com/page");
-  });
-
-  it("omits url when neither url nor _links.webui is present", async () => {
-    const item = await collectFirstCreated({ title: "T" });
-    expect(item?.url).toBeUndefined();
-  });
-
-  it("omits url when _links is not an object", async () => {
-    const item = await collectFirstCreated({
-      title: "T",
-      _links: "not an object",
-    });
-    expect(item?.url).toBeUndefined();
-  });
-
-  it("omits url when _links.webui is not a string", async () => {
-    const item = await collectFirstCreated({
-      title: "T",
-      _links: { webui: 42 },
-    });
-    expect(item?.url).toBeUndefined();
-  });
-
-  it("omits spaceName when space is not an object", async () => {
-    const item = await collectFirstCreated({
-      title: "T",
-      space: "not an object",
-    });
-    expect(item?.spaceName).toBeUndefined();
-  });
-
-  it("omits spaceName when space.name is not a string", async () => {
-    const item = await collectFirstCreated({
-      title: "T",
-      space: { name: 42 },
-    });
-    expect(item?.spaceName).toBeUndefined();
-  });
-
-  it("uses structuredContent.results when present", async () => {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.callTool.mockImplementation(
-      (_client: Client, toolName: string, args: Record<string, unknown>) => {
-        if (toolName === "jira_search") {
-          return Promise.resolve(textContent([]));
-        }
-        const cql = args["query"] as string;
-        if (cql.includes("creator =")) {
-          return Promise.resolve({
-            structuredContent: {
-              results: [{ title: "Structured page" }],
-            },
-          });
-        }
-        return Promise.resolve(confluenceTextContent([]));
-      },
-    );
-
-    const result = await collectAtlassianActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-      jiraUsername: JIRA_USERNAME,
-      jiraBaseUrl: JIRA_BASE_URL,
-      confluenceBaseUrl: CONFLUENCE_BASE_URL,
-    });
-
-    const page = result.find((item) => item.type === "page_created");
-    expect(page?.title).toBe("Structured page");
   });
 });
