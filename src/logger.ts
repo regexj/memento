@@ -27,9 +27,10 @@ function createLogger(logFilePath = "./memento.log"): Logger {
     }
 
     try {
-      const fileLine = args.length > 0
-        ? `${line} ${args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ")}`
-        : line;
+      const fileLine =
+        args.length > 0
+          ? `${line} ${args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ")}`
+          : line;
       appendFileSync(logFilePath, fileLine + "\n");
     } catch {
       // If we can't write to the log file, continue without blocking

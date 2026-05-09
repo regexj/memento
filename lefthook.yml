@@ -1,0 +1,32 @@
+#   Refer for explanation to following link:
+#   https://lefthook.dev/configuration/
+
+commit-msg:
+  commands:
+    commitlint:
+      run: bunx commitlint --edit $1
+
+post-commit:
+  parallel: false
+  skip:
+    - rebase
+  commands:
+    coverage:
+      runner: bash
+      interactive: true
+      run: |
+        # Skip if not running in a terminal (e.g., GUI)
+        if [ ! -t 1 ]; then
+          exit 0
+        fi
+
+        echo "\033[33mCommit successful!\033[0m"
+        echo "Do you want to run all checks? (y/n): " >/dev/tty
+        read -r answer </dev/tty
+
+        if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
+            echo "\033[32mRunning all checks...\033[0m"
+            bun run all-check
+        fi
+
+        exit 0

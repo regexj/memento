@@ -10,12 +10,8 @@ export default defineConfig({
             reporter: ["text", "json-summary", "json", "lcovonly"],
             include: ["src/**/*.ts"],
             exclude: [
-                "**/__fixtures__/**",
-                "**/__mocks__/**",
-                "**/__snapshots__/**",
                 "**/*.spec.ts",
                 "**/*.test.ts",
-                "**/*.d.ts",
             ],
             thresholds: {
                 statements: 100,
