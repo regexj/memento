@@ -61,6 +61,7 @@ function createMcpClientManager(
   const createTransport = options.createTransport ?? defaultCreateTransport;
   const createClient = options.createClient ?? defaultCreateClient;
   const connectedClients: Client[] = [];
+  const clientsByName = new Map<string, Client>();
 
   async function attemptConnect(
     serverConfig: McpServerConfig,
@@ -71,11 +72,24 @@ function createMcpClientManager(
     return client;
   }
 
+  function registerClient(serverConfig: McpServerConfig, client: Client): void {
+    connectedClients.push(client);
+    clientsByName.set(serverConfig.name, client);
+  }
+
   async function connect(serverConfig: McpServerConfig): Promise<Client> {
+    const existing = clientsByName.get(serverConfig.name);
+    if (existing !== undefined) {
+      logger.info(
+        `Reusing existing MCP client for server "${serverConfig.name}"`,
+      );
+      return existing;
+    }
+
     logger.info(`Connecting to MCP server "${serverConfig.name}"`);
     try {
       const client = await attemptConnect(serverConfig);
-      connectedClients.push(client);
+      registerClient(serverConfig, client);
       logger.info(`Connected to MCP server "${serverConfig.name}"`);
       return client;
     } catch (error) {
@@ -86,7 +100,7 @@ function createMcpClientManager(
       await sleep(retryDelayMs);
       try {
         const client = await attemptConnect(serverConfig);
-        connectedClients.push(client);
+        registerClient(serverConfig, client);
         logger.info(`Connected to MCP server "${serverConfig.name}" on retry`);
         return client;
       } catch (retryError) {
@@ -114,6 +128,7 @@ function createMcpClientManager(
       connectedClients.map((client) => client.close()),
     );
     connectedClients.length = 0;
+    clientsByName.clear();
     for (const result of results) {
       if (result.status === "rejected") {
         logger.warn(

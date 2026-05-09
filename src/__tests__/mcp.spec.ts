@@ -292,6 +292,136 @@ describe("createMcpClientManager.callTool", () => {
   });
 });
 
+describe("createMcpClientManager.connect caching by server name", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns the cached client on subsequent connect calls for the same server name", async () => {
+    const client = fakeClient();
+    const createClient = vi.fn().mockReturnValue(client);
+    const createTransport = vi.fn().mockImplementation(fakeTransport);
+
+    const manager = createMcpClientManager({
+      retryDelayMs: 0,
+      createClient,
+      createTransport,
+    });
+
+    const first = await manager.connect({ ...STDIO_CONFIG, name: "shared" });
+    const second = await manager.connect({ ...STDIO_CONFIG, name: "shared" });
+
+    expect(first).toBe(second);
+    expect(createClient).toHaveBeenCalledTimes(1);
+    expect(createTransport).toHaveBeenCalledTimes(1);
+    expect((client as unknown as FakeClient).connect).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Reusing existing MCP client for server "shared"',
+      ),
+    );
+  });
+
+  it("creates distinct clients for different server names", async () => {
+    const clientA = fakeClient();
+    const clientB = fakeClient();
+    const createClient = vi
+      .fn()
+      .mockReturnValueOnce(clientA)
+      .mockReturnValueOnce(clientB);
+
+    const manager = createMcpClientManager({
+      retryDelayMs: 0,
+      createClient,
+      createTransport: fakeTransport,
+    });
+
+    const first = await manager.connect({ ...STDIO_CONFIG, name: "a" });
+    const second = await manager.connect({ ...STDIO_CONFIG, name: "b" });
+
+    expect(first).toBe(clientA);
+    expect(second).toBe(clientB);
+    expect(first).not.toBe(second);
+    expect(createClient).toHaveBeenCalledTimes(2);
+  });
+
+  it("closes the underlying client exactly once on disconnectAll when the same name was connected multiple times", async () => {
+    const client = fakeClient();
+    const createClient = vi.fn().mockReturnValue(client);
+
+    const manager = createMcpClientManager({
+      retryDelayMs: 0,
+      createClient,
+      createTransport: fakeTransport,
+    });
+
+    await manager.connect({ ...STDIO_CONFIG, name: "shared" });
+    await manager.connect({ ...STDIO_CONFIG, name: "shared" });
+    await manager.connect({ ...STDIO_CONFIG, name: "shared" });
+    await manager.disconnectAll();
+
+    expect((client as unknown as FakeClient).close).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith("Disconnected 1 MCP client(s)");
+  });
+
+  it("does not populate the cache when a connect attempt fails after retry", async () => {
+    const failingClient = fakeClient({
+      connect: vi.fn().mockRejectedValue(new Error("nope")),
+    });
+    const succeedingClient = fakeClient();
+    const createClient = vi
+      .fn()
+      .mockReturnValueOnce(failingClient)
+      .mockReturnValueOnce(failingClient)
+      .mockReturnValueOnce(succeedingClient);
+
+    const manager = createMcpClientManager({
+      retryDelayMs: 0,
+      createClient,
+      createTransport: fakeTransport,
+    });
+
+    await expect(
+      manager.connect({ ...STDIO_CONFIG, name: "x" }),
+    ).rejects.toThrow("nope");
+
+    const result = await manager.connect({ ...STDIO_CONFIG, name: "x" });
+
+    expect(result).toBe(succeedingClient);
+    expect(createClient).toHaveBeenCalledTimes(3);
+    expect(
+      (succeedingClient as unknown as FakeClient).connect,
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the cache on disconnectAll so a subsequent connect opens a fresh client", async () => {
+    const firstClient = fakeClient();
+    const secondClient = fakeClient();
+    const createClient = vi
+      .fn()
+      .mockReturnValueOnce(firstClient)
+      .mockReturnValueOnce(secondClient);
+
+    const manager = createMcpClientManager({
+      retryDelayMs: 0,
+      createClient,
+      createTransport: fakeTransport,
+    });
+
+    const first = await manager.connect({ ...STDIO_CONFIG, name: "shared" });
+    await manager.disconnectAll();
+    const second = await manager.connect({ ...STDIO_CONFIG, name: "shared" });
+
+    expect(first).toBe(firstClient);
+    expect(second).toBe(secondClient);
+    expect(first).not.toBe(second);
+    expect(createClient).toHaveBeenCalledTimes(2);
+    expect(
+      (secondClient as unknown as FakeClient).connect,
+    ).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("createMcpClientManager.disconnectAll", () => {
   beforeEach(() => {
     vi.clearAllMocks();
