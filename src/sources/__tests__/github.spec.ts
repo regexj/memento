@@ -5,7 +5,7 @@ import { collectGithubActivity } from "../github.ts";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../logger.ts");
+vi.mock("../../logger.ts");
 
 interface MockManager {
   connect: ReturnType<typeof vi.fn>;
