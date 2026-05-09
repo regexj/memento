@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { loadConfig } from "../config.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("dotenv", () => ({
   default: { config: vi.fn() },
@@ -64,7 +64,7 @@ describe("loadConfig", () => {
 
       expect(() => loadConfig()).toThrow("process.exit called");
       expect(mockConsoleError).toHaveBeenCalledWith(
-        expect.stringContaining('"LLM_PROVIDER" is missing')
+        expect.stringContaining('"LLM_PROVIDER" is missing'),
       );
     });
 
@@ -73,7 +73,7 @@ describe("loadConfig", () => {
 
       expect(() => loadConfig()).toThrow("process.exit called");
       expect(mockConsoleError).toHaveBeenCalledWith(
-        expect.stringContaining('"LLM_MODEL" is missing')
+        expect.stringContaining('"LLM_MODEL" is missing'),
       );
     });
   });
@@ -88,7 +88,7 @@ describe("loadConfig", () => {
 
       expect(() => loadConfig()).toThrow("process.exit called");
       expect(mockConsoleError).toHaveBeenCalledWith(
-        expect.stringContaining('Unsupported LLM_PROVIDER "unsupported"')
+        expect.stringContaining('Unsupported LLM_PROVIDER "unsupported"'),
       );
     });
 
@@ -105,8 +105,8 @@ describe("loadConfig", () => {
       expect(() => loadConfig()).toThrow("process.exit called");
       expect(mockConsoleError).toHaveBeenCalledWith(
         expect.stringContaining(
-          'LLM_API_KEY is required for cloud provider "anthropic"'
-        )
+          'LLM_API_KEY is required for cloud provider "anthropic"',
+        ),
       );
     });
 
@@ -118,10 +118,10 @@ describe("loadConfig", () => {
         expect(() => loadConfig()).toThrow("process.exit called");
         expect(mockConsoleError).toHaveBeenCalledWith(
           expect.stringContaining(
-            `LLM_API_KEY is required for cloud provider "${provider}"`
-          )
+            `LLM_API_KEY is required for cloud provider "${provider}"`,
+          ),
         );
-      }
+      },
     );
 
     it("allows ollama without API key", () => {
@@ -148,7 +148,7 @@ describe("loadConfig", () => {
 
       expect(() => loadConfig()).toThrow("process.exit called");
       expect(mockConsoleError).toHaveBeenCalledWith(
-        expect.stringContaining('"GITHUB_USERNAME" is missing')
+        expect.stringContaining('"GITHUB_USERNAME" is missing'),
       );
     });
 
@@ -161,7 +161,7 @@ describe("loadConfig", () => {
 
       expect(() => loadConfig()).toThrow("process.exit called");
       expect(mockConsoleError).toHaveBeenCalledWith(
-        expect.stringContaining('"JIRA_USERNAME" is missing')
+        expect.stringContaining('"JIRA_USERNAME" is missing'),
       );
     });
 
@@ -175,7 +175,7 @@ describe("loadConfig", () => {
 
       expect(() => loadConfig()).toThrow("process.exit called");
       expect(mockConsoleError).toHaveBeenCalledWith(
-        expect.stringContaining('"JIRA_BASE_URL" is missing')
+        expect.stringContaining('"JIRA_BASE_URL" is missing'),
       );
     });
 
@@ -188,7 +188,7 @@ describe("loadConfig", () => {
 
       expect(() => loadConfig()).toThrow("process.exit called");
       expect(mockConsoleError).toHaveBeenCalledWith(
-        expect.stringContaining('"CONFLUENCE_BASE_URL" is missing')
+        expect.stringContaining('"CONFLUENCE_BASE_URL" is missing'),
       );
     });
 
@@ -211,11 +211,7 @@ describe("loadConfig", () => {
       setEnv({ ...VALID_ENV });
 
       const config = loadConfig();
-      expect(config.enabledSources).toEqual([
-        "github",
-        "jira",
-        "confluence",
-      ]);
+      expect(config.enabledSources).toEqual(["github", "jira", "confluence"]);
     });
 
     it("parses comma-separated sources", () => {
@@ -269,7 +265,9 @@ describe("loadConfig", () => {
 
       expect(() => loadConfig()).toThrow("process.exit called");
       expect(mockConsoleError).toHaveBeenCalledWith(
-        expect.stringContaining("REVIEW_CYCLE_MONTH must be a number between 1 and 12")
+        expect.stringContaining(
+          "REVIEW_CYCLE_MONTH must be a number between 1 and 12",
+        ),
       );
     });
 
@@ -278,7 +276,9 @@ describe("loadConfig", () => {
 
       expect(() => loadConfig()).toThrow("process.exit called");
       expect(mockConsoleError).toHaveBeenCalledWith(
-        expect.stringContaining("REVIEW_CYCLE_MONTH must be a number between 1 and 12")
+        expect.stringContaining(
+          "REVIEW_CYCLE_MONTH must be a number between 1 and 12",
+        ),
       );
     });
 
@@ -287,7 +287,9 @@ describe("loadConfig", () => {
 
       expect(() => loadConfig()).toThrow("process.exit called");
       expect(mockConsoleError).toHaveBeenCalledWith(
-        expect.stringContaining("REVIEW_CYCLE_MONTH must be a number between 1 and 12")
+        expect.stringContaining(
+          "REVIEW_CYCLE_MONTH must be a number between 1 and 12",
+        ),
       );
     });
   });

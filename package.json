@@ -5,7 +5,9 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "all-check": "npm run lint && npm run typecheck && npm run test:coverage",
+    "all-check": "npm run typecheck && npm run format:check && npm run lint && npm run test:coverage",
+    "format:check": "prettier --check .",
+    "format:write": "prettier --write .",
     "lint": "eslint . --ext .ts,.js",
     "memento": "node src/cli.ts run",
     "prepare": "lefthook install",

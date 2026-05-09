@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { readMarker, writeMarker, getCollectionWindow } from "../marker.ts";
-import { readFileSync, writeFileSync } from "node:fs";
 import { logger } from "../logger.ts";
+import { getCollectionWindow, readMarker, writeMarker } from "../marker.ts";
+import { readFileSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:fs", () => ({
   readFileSync: vi.fn(),
@@ -62,7 +62,7 @@ describe("readMarker", () => {
 
     expect(result).toBeNull();
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining("Invalid date in marker file")
+      expect.stringContaining("Invalid date in marker file"),
     );
   });
 
@@ -102,7 +102,7 @@ describe("writeMarker", () => {
     expect(mockedWriteFileSync).toHaveBeenCalledWith(
       ".last-run",
       "2025-06-16T10:30:45.123Z",
-      "utf-8"
+      "utf-8",
     );
   });
 
@@ -112,7 +112,7 @@ describe("writeMarker", () => {
     writeMarker();
 
     expect(logger.info).toHaveBeenCalledWith(
-      "Marker updated: 2025-06-16T10:30:45.123Z"
+      "Marker updated: 2025-06-16T10:30:45.123Z",
     );
   });
 });
@@ -185,7 +185,7 @@ describe("getCollectionWindow", () => {
     getCollectionWindow();
 
     expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining("Collection window from marker")
+      expect.stringContaining("Collection window from marker"),
     );
   });
 
@@ -198,7 +198,7 @@ describe("getCollectionWindow", () => {
     getCollectionWindow();
 
     expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining("No marker found, defaulting to 7-day window")
+      expect.stringContaining("No marker found, defaulting to 7-day window"),
     );
   });
 });

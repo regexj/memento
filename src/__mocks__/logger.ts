@@ -1,5 +1,5 @@
-import { vi } from "vitest";
 import type { Logger } from "../logger.ts";
+import { vi } from "vitest";
 
 export const logger: Logger = {
   info: vi.fn(),

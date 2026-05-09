@@ -1,9 +1,9 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { createOllama } from "ollama-ai-provider-v2";
 import { createMistral } from "@ai-sdk/mistral";
+import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
+import { createOllama } from "ollama-ai-provider-v2";
 
 const CLOUD_PROVIDERS = ["anthropic", "openai", "google", "mistral"] as const;
 const LOCAL_PROVIDERS = ["ollama"] as const;
@@ -15,7 +15,7 @@ const ALL_PROVIDERS = [...CLOUD_PROVIDERS, ...LOCAL_PROVIDERS] as const;
 export function createModel(
   provider: string,
   model: string,
-  apiKey?: string
+  apiKey?: string,
 ): LanguageModel {
   switch (provider) {
     case "anthropic":
@@ -30,7 +30,7 @@ export function createModel(
       return createOllama()(model);
     default:
       throw new Error(
-        `Unsupported LLM provider: "${provider}". Supported providers: ${ALL_PROVIDERS.join(", ")}`
+        `Unsupported LLM provider: "${provider}". Supported providers: ${ALL_PROVIDERS.join(", ")}`,
       );
   }
 }

@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createLogger, type Logger } from "../logger.ts";
+import { type Logger, createLogger } from "../logger.ts";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 describe("logger", () => {
   let logger: Logger;
@@ -52,7 +52,7 @@ describe("logger", () => {
       expect(mockConsoleInfo).toHaveBeenCalledWith(
         expect.stringContaining("[INFO] with args"),
         { key: "value" },
-        42
+        42,
       );
     });
 
@@ -134,9 +134,7 @@ describe("logger", () => {
     });
 
     it("logs stage end with duration in ms", () => {
-      vi.spyOn(Date, "now")
-        .mockReturnValueOnce(1000)
-        .mockReturnValueOnce(1250);
+      vi.spyOn(Date, "now").mockReturnValueOnce(1000).mockReturnValueOnce(1250);
 
       logger.startStage("summarize");
       logger.endStage("summarize");
