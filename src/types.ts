@@ -27,7 +27,17 @@ export interface ActivityItem {
   storyPoints?: number;
   epicName?: string;
   spaceName?: string;
+  description?: string;
+  eventAttendees?: string[];
+  conferenceUrl?: string;
+  fileId?: string;
+  lastModified?: string;
   metadata?: Record<string, unknown>;
+}
+
+export interface CalendarCollectionResult {
+  items: ActivityItem[];
+  attachmentFileIds: string[];
 }
 
 export interface SourceResult {
