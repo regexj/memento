@@ -5,7 +5,8 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "all-check": "npm run typecheck && npm run test:coverage",
+    "all-check": "npm run lint && npm run typecheck && npm run test:coverage",
+    "lint": "eslint . --ext .ts,.js",
     "memento": "node src/cli.ts run",
     "prepare": "lefthook install",
     "review": "node src/cli.ts review",
@@ -40,8 +41,11 @@
     "@types/node": "^24.0.0",
     "@types/node-notifier": "^8.0.5",
     "@vitest/coverage-v8": "^4.1.5",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
     "lefthook": "^2.1.6",
     "prettier": "^3.8.3",
+    "typescript-eslint": "^8.59.2",
     "vitest": "^4.1.5"
   },
   "engines": {

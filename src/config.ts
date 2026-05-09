@@ -1,12 +1,12 @@
-import dotenv from "dotenv";
 import type { Config } from "./types.ts";
+import dotenv from "dotenv";
 
 dotenv.config();
 
 const CLOUD_PROVIDERS = ["anthropic", "openai", "google", "mistral"] as const;
 const LOCAL_PROVIDERS = ["ollama"] as const;
 const ALL_PROVIDERS = [...CLOUD_PROVIDERS, ...LOCAL_PROVIDERS] as const;
-const ALL_SOURCES = ["github", "jira", "confluence"] as const;
+// const ALL_SOURCES = ["github", "jira", "confluence"] as const;
 
 function isCloudProvider(provider: string): boolean {
   return (CLOUD_PROVIDERS as readonly string[]).includes(provider);
@@ -44,15 +44,15 @@ export function loadConfig(): Config {
 
   if (!(ALL_PROVIDERS as readonly string[]).includes(llmProvider)) {
     exitWithError(
-      `Error: Unsupported LLM_PROVIDER "${llmProvider}". Supported providers: ${ALL_PROVIDERS.join(", ")}`
+      `Error: Unsupported LLM_PROVIDER "${llmProvider}". Supported providers: ${ALL_PROVIDERS.join(", ")}`,
     );
   }
 
-  let llmApiKey: string | undefined = process.env["LLM_API_KEY"];
+  const llmApiKey: string | undefined = process.env["LLM_API_KEY"];
 
   if (isCloudProvider(llmProvider) && !llmApiKey) {
     exitWithError(
-      `Error: LLM_API_KEY is required for cloud provider "${llmProvider}".`
+      `Error: LLM_API_KEY is required for cloud provider "${llmProvider}".`,
     );
   }
 
@@ -70,7 +70,7 @@ export function loadConfig(): Config {
     const parsed = parseInt(cycleMonthRaw, 10);
     if (isNaN(parsed) || parsed < 1 || parsed > 12) {
       exitWithError(
-        `Error: REVIEW_CYCLE_MONTH must be a number between 1 and 12. Got: "${cycleMonthRaw}"`
+        `Error: REVIEW_CYCLE_MONTH must be a number between 1 and 12. Got: "${cycleMonthRaw}"`,
       );
     }
     reviewCycleMonth = parsed;
