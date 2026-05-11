@@ -7,9 +7,15 @@
       }
     },
     "atlassian": {
-      "url": "https://mcp.atlassian.com/v1/sse",
-      "headers": {
-        "Authorization": "Bearer your-atlassian-token-here"
+      "command": "uvx",
+      "args": ["mcp-atlassian"],
+      "env": {
+        "JIRA_URL": "https://your-org.atlassian.net",
+        "JIRA_USERNAME": "you@example.com",
+        "JIRA_API_TOKEN": "...",
+        "CONFLUENCE_URL": "https://your-org.atlassian.net/wiki",
+        "CONFLUENCE_USERNAME": "you@example.com",
+        "CONFLUENCE_API_TOKEN": "..."
       }
     },
     "calendar": {
