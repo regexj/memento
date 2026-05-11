@@ -8,6 +8,12 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 const RETRY_DELAY_MS = 5000;
 
+interface McpToolInfo {
+  name: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+}
+
 interface McpClientManager {
   connect(serverConfig: McpServerConfig): Promise<Client>;
   callTool(
@@ -15,6 +21,7 @@ interface McpClientManager {
     toolName: string,
     args: Record<string, unknown>,
   ): Promise<unknown>;
+  listTools(client: Client): Promise<McpToolInfo[]>;
   disconnectAll(): Promise<void>;
 }
 
@@ -122,6 +129,21 @@ function createMcpClientManager(
     return await client.callTool({ name: toolName, arguments: args });
   }
 
+  async function listTools(client: Client): Promise<McpToolInfo[]> {
+    logger.info("Listing MCP tools");
+    const response = await client.listTools();
+    return response.tools.map((tool) => {
+      const info: McpToolInfo = {
+        name: tool.name,
+        inputSchema: tool.inputSchema as Record<string, unknown>,
+      };
+      if (tool.description !== undefined) {
+        info.description = tool.description;
+      }
+      return info;
+    });
+  }
+
   async function disconnectAll(): Promise<void> {
     const count = connectedClients.length;
     const results = await Promise.allSettled(
@@ -140,11 +162,12 @@ function createMcpClientManager(
     logger.info(`Disconnected ${count} MCP client(s)`);
   }
 
-  return { connect, callTool, disconnectAll };
+  return { connect, callTool, listTools, disconnectAll };
 }
 
 export {
   createMcpClientManager,
   type McpClientManager,
   type McpClientManagerOptions,
+  type McpToolInfo,
 };

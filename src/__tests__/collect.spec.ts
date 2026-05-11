@@ -62,6 +62,7 @@ function makeManager(): ReturnType<typeof createMcpClientManager> {
   return {
     connect: vi.fn(),
     callTool: vi.fn(),
+    listTools: vi.fn().mockResolvedValue([]),
     disconnectAll: vi.fn().mockResolvedValue(undefined),
   };
 }

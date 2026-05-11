@@ -43,7 +43,6 @@ const SERVER_CONFIG: McpServerConfig = {
   toolCalls: [],
 };
 
-const USERNAME = "alice";
 const BASE_URL = "https://example.atlassian.net/wiki";
 const FAKE_CLIENT = { id: "client" } as unknown as Client;
 
@@ -89,7 +88,6 @@ describe("collectConfluenceActivity — happy path", () => {
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      username: USERNAME,
       baseUrl: BASE_URL,
     });
 
@@ -102,7 +100,7 @@ describe("collectConfluenceActivity — happy path", () => {
         "confluence_search",
         {
           query:
-            'type = page AND creator = "alice" AND created >= "2025-06-01" AND created <= "2025-06-08"',
+            'type = page AND creator = currentUser() AND created >= "2025-06-01" AND created <= "2025-06-08"',
         },
       ],
       [
@@ -110,7 +108,7 @@ describe("collectConfluenceActivity — happy path", () => {
         "confluence_search",
         {
           query:
-            'type = page AND contributor = "alice" AND lastmodified >= "2025-06-01" AND lastmodified <= "2025-06-08"',
+            'type = page AND contributor = currentUser() AND lastmodified >= "2025-06-01" AND lastmodified <= "2025-06-08"',
         },
       ],
     ]);
@@ -160,7 +158,6 @@ describe("collectConfluenceActivity — happy path", () => {
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      username: USERNAME,
       baseUrl: "https://example.atlassian.net/wiki///",
     });
 
@@ -194,7 +191,6 @@ describe("collectConfluenceActivity — happy path", () => {
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      username: USERNAME,
       baseUrl: BASE_URL,
     });
 
@@ -218,7 +214,6 @@ describe("collectConfluenceActivity — connection failures", () => {
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      username: USERNAME,
       baseUrl: BASE_URL,
     });
 
@@ -238,7 +233,7 @@ describe("collectConfluenceActivity — connection failures", () => {
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      username: USERNAME,
+
       baseUrl: BASE_URL,
     });
 
@@ -272,7 +267,6 @@ describe("collectConfluenceActivity — tool call failures", () => {
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      username: USERNAME,
       baseUrl: BASE_URL,
     });
 
@@ -301,7 +295,6 @@ describe("collectConfluenceActivity — tool call failures", () => {
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      username: USERNAME,
       baseUrl: BASE_URL,
     });
 
@@ -335,7 +328,6 @@ describe("collectConfluenceActivity — response parsing", () => {
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      username: USERNAME,
       baseUrl: BASE_URL,
     });
 
@@ -487,7 +479,6 @@ describe("collectConfluenceActivity — page shaping", () => {
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      username: USERNAME,
       baseUrl: BASE_URL,
     });
 
@@ -577,7 +568,6 @@ describe("collectConfluenceActivity — page shaping", () => {
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-      username: USERNAME,
       baseUrl: BASE_URL,
     });
 

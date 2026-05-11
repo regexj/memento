@@ -134,22 +134,16 @@ function buildConfluenceTask(
     source: "confluence",
     task: (async () => {
       const serverConfig = serverConfigs.confluence;
-      const username = config.jiraUsername;
       const baseUrl = config.confluenceBaseUrl;
-      if (
-        serverConfig === undefined ||
-        username === undefined ||
-        baseUrl === undefined
-      ) {
+      if (serverConfig === undefined || baseUrl === undefined) {
         throw new Error(
-          'Confluence source is enabled but requires "serverConfigs.confluence", "config.jiraUsername", and "config.confluenceBaseUrl"',
+          'Confluence source is enabled but requires "serverConfigs.confluence" and "config.confluenceBaseUrl"',
         );
       }
       return deps.collectConfluence({
         manager,
         serverConfig,
         window,
-        username,
         baseUrl,
       });
     })(),

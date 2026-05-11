@@ -24,6 +24,7 @@ const WINDOW: CollectionWindow = {
 const MANAGER: McpClientManager = {
   connect: vi.fn(),
   callTool: vi.fn(),
+  listTools: vi.fn(),
   disconnectAll: vi.fn(),
 };
 
@@ -161,7 +162,6 @@ describe("collect — enabled sources selection", () => {
       manager: MANAGER,
       serverConfig: SERVER_CONFIGS.confluence,
       window: WINDOW,
-      username: "alice@example.com",
       baseUrl: "https://confluence.example.com",
     });
     expect(dependencies.collectCalendar).toHaveBeenCalledWith({
@@ -510,24 +510,6 @@ describe("collect — missing server/config errors", () => {
       window: WINDOW,
       config,
       serverConfigs,
-      dependencies,
-    });
-
-    expect(result.failures).toContain("confluence");
-  });
-
-  it("fails confluence when config.jiraUsername is missing", async () => {
-    const dependencies = makeDependencies();
-    const config = makeConfig({
-      enabledSources: ["confluence"],
-      jiraUsername: undefined,
-    });
-
-    const result = await collect({
-      manager: MANAGER,
-      window: WINDOW,
-      config,
-      serverConfigs: SERVER_CONFIGS,
       dependencies,
     });
 

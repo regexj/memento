@@ -12,7 +12,6 @@ interface CollectConfluenceOptions {
   manager: McpClientManager;
   serverConfig: McpServerConfig;
   window: CollectionWindow;
-  username: string;
   baseUrl: string;
 }
 
@@ -138,18 +137,17 @@ function shapeConfluencePage(
 }
 
 function buildConfluenceInvocations(
-  username: string,
   window: CollectionWindow,
 ): ConfluenceInvocation[] {
   const from = formatDate(window.from);
   const to = formatDate(window.to);
   return [
     {
-      cql: `type = page AND creator = "${username}" AND created >= "${from}" AND created <= "${to}"`,
+      cql: `type = page AND creator = currentUser() AND created >= "${from}" AND created <= "${to}"`,
       type: "page_created",
     },
     {
-      cql: `type = page AND contributor = "${username}" AND lastmodified >= "${from}" AND lastmodified <= "${to}"`,
+      cql: `type = page AND contributor = currentUser() AND lastmodified >= "${from}" AND lastmodified <= "${to}"`,
       type: "page_edited",
     },
   ];
@@ -187,7 +185,7 @@ async function runConfluenceInvocation(
 export async function collectConfluenceActivity(
   options: CollectConfluenceOptions,
 ): Promise<ActivityItem[]> {
-  const { manager, serverConfig, window, username, baseUrl } = options;
+  const { manager, serverConfig, window, baseUrl } = options;
 
   let client: Client;
   try {
@@ -200,7 +198,7 @@ export async function collectConfluenceActivity(
     return [];
   }
 
-  const invocations = buildConfluenceInvocations(username, window);
+  const invocations = buildConfluenceInvocations(window);
   const activities: ActivityItem[] = [];
   for (const invocation of invocations) {
     const items = await runConfluenceInvocation(

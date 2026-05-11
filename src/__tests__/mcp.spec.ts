@@ -13,10 +13,12 @@ vi.mock("@modelcontextprotocol/sdk/client/index.js", () => {
   const Client = vi.fn(function (this: {
     connect: ReturnType<typeof vi.fn>;
     callTool: ReturnType<typeof vi.fn>;
+    listTools: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
   }) {
     this.connect = vi.fn().mockResolvedValue(undefined);
     this.callTool = vi.fn().mockResolvedValue({ ok: true });
+    this.listTools = vi.fn().mockResolvedValue({ tools: [] });
     this.close = vi.fn().mockResolvedValue(undefined);
   });
   return { Client };
@@ -63,6 +65,7 @@ function fakeTransport(): Transport {
 interface FakeClient {
   connect: ReturnType<typeof vi.fn>;
   callTool: ReturnType<typeof vi.fn>;
+  listTools: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
 }
 
@@ -70,6 +73,7 @@ function fakeClient(overrides: Partial<FakeClient> = {}): Client {
   const client: FakeClient = {
     connect: overrides.connect ?? vi.fn().mockResolvedValue(undefined),
     callTool: overrides.callTool ?? vi.fn().mockResolvedValue({ ok: true }),
+    listTools: overrides.listTools ?? vi.fn().mockResolvedValue({ tools: [] }),
     close: overrides.close ?? vi.fn().mockResolvedValue(undefined),
   };
   return client as unknown as Client;
@@ -289,6 +293,124 @@ describe("createMcpClientManager.callTool", () => {
     await expect(manager.callTool(client, "broken", {})).rejects.toThrow(
       "tool failed",
     );
+  });
+});
+
+describe("createMcpClientManager.listTools", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns mapped tool info with name, description, and inputSchema", async () => {
+    const inputSchema = {
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+    };
+    const client = fakeClient({
+      listTools: vi.fn().mockResolvedValue({
+        tools: [
+          {
+            name: "search",
+            description: "Run a search",
+            inputSchema,
+          },
+        ],
+      }),
+    });
+
+    const manager = createMcpClientManager({
+      retryDelayMs: 0,
+      createClient: () => client,
+      createTransport: fakeTransport,
+    });
+
+    const result = await manager.listTools(client);
+
+    expect(result).toEqual([
+      { name: "search", description: "Run a search", inputSchema },
+    ]);
+    expect((client as unknown as FakeClient).listTools).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(logger.info).toHaveBeenCalledWith("Listing MCP tools");
+  });
+
+  it("omits description from the mapped tool info when the server does not provide one", async () => {
+    const inputSchema = { type: "object" };
+    const client = fakeClient({
+      listTools: vi.fn().mockResolvedValue({
+        tools: [{ name: "unannotated", inputSchema }],
+      }),
+    });
+
+    const manager = createMcpClientManager({
+      retryDelayMs: 0,
+      createClient: () => client,
+      createTransport: fakeTransport,
+    });
+
+    const result = await manager.listTools(client);
+
+    expect(result).toEqual([{ name: "unannotated", inputSchema }]);
+    expect(result[0]).not.toHaveProperty("description");
+  });
+
+  it("returns an empty array when the server exposes no tools", async () => {
+    const client = fakeClient({
+      listTools: vi.fn().mockResolvedValue({ tools: [] }),
+    });
+
+    const manager = createMcpClientManager({
+      retryDelayMs: 0,
+      createClient: () => client,
+      createTransport: fakeTransport,
+    });
+
+    const result = await manager.listTools(client);
+
+    expect(result).toEqual([]);
+  });
+
+  it("preserves tool order returned by the server", async () => {
+    const schema = { type: "object" };
+    const client = fakeClient({
+      listTools: vi.fn().mockResolvedValue({
+        tools: [
+          { name: "z_last", inputSchema: schema },
+          { name: "a_first", inputSchema: schema },
+          { name: "m_middle", inputSchema: schema },
+        ],
+      }),
+    });
+
+    const manager = createMcpClientManager({
+      retryDelayMs: 0,
+      createClient: () => client,
+      createTransport: fakeTransport,
+    });
+
+    const result = await manager.listTools(client);
+
+    expect(result.map((tool) => tool.name)).toEqual([
+      "z_last",
+      "a_first",
+      "m_middle",
+    ]);
+  });
+
+  it("propagates errors thrown by client.listTools", async () => {
+    const client = fakeClient({
+      listTools: vi.fn().mockRejectedValue(new Error("listTools failed")),
+    });
+
+    const manager = createMcpClientManager({
+      retryDelayMs: 0,
+      createClient: () => client,
+      createTransport: fakeTransport,
+    });
+
+    await expect(manager.listTools(client)).rejects.toThrow("listTools failed");
   });
 });
 
@@ -634,10 +756,12 @@ describe("createMcpClientManager default factories", () => {
       MockedClient.mockImplementationOnce(function (this: {
         connect: ReturnType<typeof vi.fn>;
         callTool: ReturnType<typeof vi.fn>;
+        listTools: ReturnType<typeof vi.fn>;
         close: ReturnType<typeof vi.fn>;
       }) {
         this.connect = failingConnect;
         this.callTool = vi.fn();
+        this.listTools = vi.fn().mockResolvedValue({ tools: [] });
         this.close = vi.fn().mockResolvedValue(undefined);
       } as unknown as (
         ...args: ConstructorParameters<typeof Client>
