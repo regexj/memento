@@ -4,7 +4,7 @@ import { logger } from "./logger.ts";
 import { getCollectionWindow } from "./marker.ts";
 import { createMcpClientManager } from "./mcp.ts";
 import { loadSourceServerConfigs } from "./source-config.ts";
-import { errorDetail } from "./util.ts";
+import { errorMessage } from "./util.ts";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -75,7 +75,7 @@ export async function main(): Promise<void> {
 
 export function run(): void {
   main().catch((error: unknown) => {
-    const message = errorDetail(error);
+    const message = errorMessage(error);
     logger.error("Collection harness failed", message);
     process.exitCode = 1;
   });

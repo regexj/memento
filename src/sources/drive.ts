@@ -5,6 +5,7 @@ import type {
   CollectionWindow,
   McpServerConfig,
 } from "../types.ts";
+import { errorMessage, getString, isRecord } from "../util.ts";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 interface CollectDriveOptions {
@@ -17,18 +18,6 @@ interface CollectDriveOptions {
 interface AuthoredFileMeta {
   title: string;
   url?: string;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function getString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
 }
 
 function extractItemsFromStructured(

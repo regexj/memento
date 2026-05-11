@@ -1,7 +1,7 @@
 import type { SourceServerConfigs } from "./collector.ts";
 import { logger } from "./logger.ts";
 import type { McpServerConfig } from "./types.ts";
-import { errorDetail } from "./util.ts";
+import { errorMessage, isRecord } from "./util.ts";
 import { readFileSync } from "node:fs";
 
 const DEFAULT_CONFIG_PATH = "./memento.mcp.json";
@@ -32,10 +32,6 @@ interface ParsedConfig {
 function exitWithError(message: string): never {
   console.error(message);
   process.exit(1);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -171,7 +167,7 @@ function parseConfig(text: string, configPath: string): ParsedConfig {
   try {
     parsed = JSON.parse(text);
   } catch (error) {
-    const detail = errorDetail(error);
+    const detail = errorMessage(error);
     exitWithError(`Error: failed to parse "${configPath}" as JSON: ${detail}`);
   }
   if (!isRecord(parsed)) {
@@ -241,7 +237,7 @@ function readConfigFile(configPath: string): string | null {
     if (isRecord(error) && error["code"] === "ENOENT") {
       return null;
     }
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = errorMessage(error);
     exitWithError(`Error: failed to read "${configPath}": ${detail}`);
   }
 }

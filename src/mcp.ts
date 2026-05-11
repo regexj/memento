@@ -1,5 +1,6 @@
 import { logger } from "./logger.ts";
 import type { McpServerConfig } from "./types.ts";
+import { errorMessage, sleep } from "./util.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -21,14 +22,6 @@ interface McpClientManagerOptions {
   retryDelayMs?: number;
   createTransport?: (serverConfig: McpServerConfig) => Transport;
   createClient?: () => Client;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function defaultCreateTransport(serverConfig: McpServerConfig): Transport {

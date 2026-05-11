@@ -13,6 +13,7 @@ import type {
   McpServerConfig,
   SourceResult,
 } from "./types.ts";
+import { errorMessage } from "./util.ts";
 
 export interface SourceServerConfigs {
   github?: McpServerConfig;
@@ -61,10 +62,6 @@ interface Phase1Task {
 
 interface CalendarState {
   attachmentFileIds: string[];
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function resolveCustomUsername(config: Config): string {

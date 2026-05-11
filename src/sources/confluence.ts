@@ -5,6 +5,7 @@ import type {
   CollectionWindow,
   McpServerConfig,
 } from "../types.ts";
+import { errorMessage, formatDate, getString, isRecord } from "../util.ts";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 interface CollectConfluenceOptions {
@@ -18,22 +19,6 @@ interface CollectConfluenceOptions {
 interface ConfluenceInvocation {
   cql: string;
   type: string;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function formatDate(date: Date): string {
-  return date.toISOString().split("T")[0]!;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function getString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
 }
 
 function extractResultsFromStructured(

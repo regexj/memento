@@ -6,6 +6,7 @@ import type {
   McpServerConfig,
   ToolCallConfig,
 } from "../types.ts";
+import { errorMessage, formatDate, getString, isRecord } from "../util.ts";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { readFile as fsReadFile } from "node:fs/promises";
 
@@ -27,22 +28,6 @@ interface ParsedCustomConfig {
 }
 
 const DEFAULT_CONFIG_PATH = "./mcp-servers.json";
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function formatDate(date: Date): string {
-  return date.toISOString().split("T")[0]!;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function getString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
 
 function getStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) {
