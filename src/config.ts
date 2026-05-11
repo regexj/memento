@@ -56,7 +56,8 @@ export function loadConfig(): Config {
     );
   }
 
-  const sourcesRaw = process.env["MEMENTO_SOURCES"] || "github,jira,confluence";
+  const sourcesRaw =
+    process.env["MEMENTO_SOURCES"] || "github,jira,confluence,calendar,drive";
   const enabledSources = sourcesRaw
     .split(",")
     .map((s) => s.trim().toLowerCase())

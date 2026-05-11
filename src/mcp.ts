@@ -5,8 +5,21 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { IOType } from "node:child_process";
 
 const RETRY_DELAY_MS = 5000;
+
+/**
+ * Resolves how stdio MCP subprocess stderr is routed. Defaults to "ignore".
+ * Override with the `MCP_STDIO_STDERR` env var (`inherit` | `pipe` | `ignore`)
+ */
+function resolveStdioStderr(): IOType {
+  const raw = process.env["MCP_STDIO_STDERR"]?.toLowerCase();
+  if (raw === "inherit" || raw === "pipe" || raw === "ignore") {
+    return raw;
+  }
+  return "ignore";
+}
 
 interface McpToolInfo {
   name: string;
@@ -37,6 +50,7 @@ function defaultCreateTransport(serverConfig: McpServerConfig): Transport {
       command: serverConfig.command,
       ...(serverConfig.args !== undefined ? { args: serverConfig.args } : {}),
       ...(serverConfig.env !== undefined ? { env: serverConfig.env } : {}),
+      stderr: resolveStdioStderr(),
     });
   }
   if (serverConfig.url) {

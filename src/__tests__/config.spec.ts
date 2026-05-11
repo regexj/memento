@@ -207,11 +207,17 @@ describe("loadConfig", () => {
   });
 
   describe("MEMENTO_SOURCES parsing", () => {
-    it("defaults to github,jira,confluence when not set", () => {
+    it("defaults to github,jira,confluence,calendar,drive when not set", () => {
       setEnv({ ...VALID_ENV });
 
       const config = loadConfig();
-      expect(config.enabledSources).toEqual(["github", "jira", "confluence"]);
+      expect(config.enabledSources).toEqual([
+        "github",
+        "jira",
+        "confluence",
+        "calendar",
+        "drive",
+      ]);
     });
 
     it("parses comma-separated sources", () => {
@@ -329,7 +335,7 @@ describe("loadConfig", () => {
         jiraUsername: "testuser",
         jiraBaseUrl: "https://test.atlassian.net",
         confluenceBaseUrl: "https://test.atlassian.net/wiki",
-        enabledSources: ["github", "jira", "confluence"],
+        enabledSources: ["github", "jira", "confluence", "calendar", "drive"],
         reviewCycleMonth: 6,
         diaryDir: "./diary",
         logFile: "./memento.log",

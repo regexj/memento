@@ -679,6 +679,7 @@ describe("createMcpClientManager default factories", () => {
     expect(MockedStdio).toHaveBeenCalledWith({
       command: "node",
       args: ["server.js"],
+      stderr: "ignore",
     });
     expect(MockedHttp).not.toHaveBeenCalled();
   });
@@ -697,7 +698,46 @@ describe("createMcpClientManager default factories", () => {
     expect(MockedStdio).toHaveBeenCalledWith({
       command: "node",
       env: { TOKEN: "abc" },
+      stderr: "ignore",
     });
+  });
+
+  it("honors MCP_STDIO_STDERR=inherit to route subprocess stderr to the parent terminal", async () => {
+    const previous = process.env["MCP_STDIO_STDERR"];
+    process.env["MCP_STDIO_STDERR"] = "inherit";
+    try {
+      const manager = createMcpClientManager({ retryDelayMs: 0 });
+      await manager.connect(STDIO_CONFIG);
+
+      expect(MockedStdio).toHaveBeenCalledWith(
+        expect.objectContaining({ stderr: "inherit" }),
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env["MCP_STDIO_STDERR"];
+      } else {
+        process.env["MCP_STDIO_STDERR"] = previous;
+      }
+    }
+  });
+
+  it('falls back to stderr: "ignore" when MCP_STDIO_STDERR is an unrecognized value', async () => {
+    const previous = process.env["MCP_STDIO_STDERR"];
+    process.env["MCP_STDIO_STDERR"] = "garbage";
+    try {
+      const manager = createMcpClientManager({ retryDelayMs: 0 });
+      await manager.connect(STDIO_CONFIG);
+
+      expect(MockedStdio).toHaveBeenCalledWith(
+        expect.objectContaining({ stderr: "ignore" }),
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env["MCP_STDIO_STDERR"];
+      } else {
+        process.env["MCP_STDIO_STDERR"] = previous;
+      }
+    }
   });
 
   it("creates a StreamableHTTPClientTransport when the server config has a url", async () => {
