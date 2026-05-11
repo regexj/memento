@@ -40,7 +40,14 @@ function defaultCreateTransport(serverConfig: McpServerConfig): Transport {
     });
   }
   if (serverConfig.url) {
-    return new StreamableHTTPClientTransport(new URL(serverConfig.url));
+    const options =
+      serverConfig.headers !== undefined
+        ? { requestInit: { headers: serverConfig.headers } }
+        : undefined;
+    return new StreamableHTTPClientTransport(
+      new URL(serverConfig.url),
+      options,
+    );
   }
   throw new Error(
     `MCP server "${serverConfig.name}" config must include either "command" (stdio) or "url" (streamable HTTP).`,

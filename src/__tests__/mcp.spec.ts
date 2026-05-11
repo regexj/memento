@@ -584,10 +584,31 @@ describe("createMcpClientManager default factories", () => {
     await manager.connect(HTTP_CONFIG);
 
     expect(MockedHttp).toHaveBeenCalledTimes(1);
-    const [urlArg] = MockedHttp.mock.calls[0]!;
+    const [urlArg, optionsArg] = MockedHttp.mock.calls[0]!;
     expect(urlArg).toBeInstanceOf(URL);
     expect((urlArg as URL).toString()).toBe("https://example.com/mcp");
+    expect(optionsArg).toBeUndefined();
     expect(MockedStdio).not.toHaveBeenCalled();
+  });
+
+  it("passes headers through to StreamableHTTPClientTransport via requestInit when provided", async () => {
+    const manager = createMcpClientManager({ retryDelayMs: 0 });
+    const configWithHeaders: McpServerConfig = {
+      name: "with-headers",
+      url: "https://example.com/mcp",
+      headers: { Authorization: "Bearer token" },
+      toolCalls: [],
+    };
+
+    await manager.connect(configWithHeaders);
+
+    expect(MockedHttp).toHaveBeenCalledTimes(1);
+    const [urlArg, optionsArg] = MockedHttp.mock.calls[0]!;
+    expect(urlArg).toBeInstanceOf(URL);
+    expect((urlArg as URL).toString()).toBe("https://example.com/mcp");
+    expect(optionsArg).toEqual({
+      requestInit: { headers: { Authorization: "Bearer token" } },
+    });
   });
 
   it("throws when a server config has neither command nor url", async () => {
