@@ -51,7 +51,7 @@ describe("collectGithubActivity — happy path", () => {
     vi.clearAllMocks();
   });
 
-  it("calls the six tools in order with correct queries and aggregates items", async () => {
+  it("calls the five tools in order with correct queries and aggregates items", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation(
@@ -114,18 +114,6 @@ describe("collectGithubActivity — happy path", () => {
             ]),
           );
         }
-        if (toolName === "search_commits") {
-          return Promise.resolve(
-            textContent([
-              {
-                sha: "abcdef1234567890",
-                message: "fix: repair the thing\n\nMore details here",
-                html_url: "https://github.com/owner/repo-a/commit/abcdef1",
-                repository: { full_name: "owner/repo-a" },
-              },
-            ]),
-          );
-        }
         return Promise.resolve({});
       },
     );
@@ -138,7 +126,7 @@ describe("collectGithubActivity — happy path", () => {
     });
 
     expect(manager.connect).toHaveBeenCalledWith(SERVER_CONFIG);
-    expect(manager.callTool).toHaveBeenCalledTimes(6);
+    expect(manager.callTool).toHaveBeenCalledTimes(5);
 
     const calls = manager.callTool.mock.calls;
     expect(calls[0]).toEqual([
@@ -165,11 +153,6 @@ describe("collectGithubActivity — happy path", () => {
       FAKE_CLIENT,
       "search_issues",
       { query: "is:issue assignee:alice closed:2025-06-01..2025-06-08" },
-    ]);
-    expect(calls[5]).toEqual([
-      FAKE_CLIENT,
-      "search_commits",
-      { query: "author:alice author-date:2025-06-01..2025-06-08" },
     ]);
 
     expect(result).toEqual([
@@ -203,16 +186,10 @@ describe("collectGithubActivity — happy path", () => {
         url: "https://github.com/owner/repo-c/issues/5",
         repo: "owner/repo-c",
       },
-      {
-        type: "commit_authored",
-        title: "abcdef1 fix: repair the thing",
-        url: "https://github.com/owner/repo-a/commit/abcdef1",
-        repo: "owner/repo-a",
-      },
     ]);
 
     expect(logger.info).toHaveBeenCalledWith(
-      "Collected 6 GitHub activity item(s)",
+      "Collected 5 GitHub activity item(s)",
     );
   });
 });
@@ -285,7 +262,7 @@ describe("collectGithubActivity — tool call failures", () => {
     });
 
     expect(result).toEqual([]);
-    expect(manager.callTool).toHaveBeenCalledTimes(6);
+    expect(manager.callTool).toHaveBeenCalledTimes(5);
     expect(logger.warn).toHaveBeenCalledWith(
       'GitHub tool "search_pull_requests" (pr_opened) failed',
       "tool broke",
@@ -568,14 +545,6 @@ describe("collectGithubActivity — PR/issue repo resolution", () => {
     expect(out?.repo).toBe("owner/fromurl");
   });
 
-  it("extracts repo from repository_url when html_url is missing", async () => {
-    const out = await collectFirstPr({
-      title: "A",
-      repository_url: "https://api.github.com/repos/owner/repourl",
-    });
-    expect(out?.repo).toBe("owner/repourl");
-  });
-
   it("leaves repo undefined when no repo info is available", async () => {
     const out = await collectFirstPr({ title: "A" });
     expect(out?.repo).toBeUndefined();
@@ -663,131 +632,5 @@ describe("collectGithubActivity — PR/issue title fallback", () => {
     });
     const pr = result.find((r) => r.type === "pr_opened");
     expect(pr?.title).toBe("#?");
-  });
-});
-
-describe("collectGithubActivity — commit shaping", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  async function collectFirstCommit(
-    item: Record<string, unknown>,
-  ): Promise<{ title: string; url?: string; repo?: string } | undefined> {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "search_commits") {
-        return Promise.resolve(textContent([item]));
-      }
-      return Promise.resolve(textContent([]));
-    });
-
-    const result = await collectGithubActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-      username: USERNAME,
-    });
-    const commit = result.find((r) => r.type === "commit_authored");
-    if (commit === undefined) {
-      return undefined;
-    }
-    const out: { title: string; url?: string; repo?: string } = {
-      title: commit.title,
-    };
-    if (commit.url !== undefined) {
-      out.url = commit.url;
-    }
-    if (commit.repo !== undefined) {
-      out.repo = commit.repo;
-    }
-    return out;
-  }
-
-  it("formats title as shortSha and first line of message", async () => {
-    const out = await collectFirstCommit({
-      sha: "1234567890abcdef",
-      message: "feat: add thing\n\nDetails go here",
-      html_url: "https://github.com/owner/repo/commit/1234567",
-      repository: { full_name: "owner/repo" },
-    });
-    expect(out?.title).toBe("1234567 feat: add thing");
-    expect(out?.url).toBe("https://github.com/owner/repo/commit/1234567");
-    expect(out?.repo).toBe("owner/repo");
-  });
-
-  it("uses 'unknown' prefix when sha is missing", async () => {
-    const out = await collectFirstCommit({ message: "something" });
-    expect(out?.title).toBe("unknown something");
-  });
-
-  it("omits the trailing space when message is empty", async () => {
-    const out = await collectFirstCommit({
-      sha: "abcdef1234567",
-      message: "",
-    });
-    expect(out?.title).toBe("abcdef1");
-  });
-
-  it("omits the trailing space when message is missing", async () => {
-    const out = await collectFirstCommit({ sha: "abcdef1234567" });
-    expect(out?.title).toBe("abcdef1");
-  });
-
-  it("leaves url undefined when html_url is missing", async () => {
-    const out = await collectFirstCommit({
-      sha: "abcdef1234567",
-      message: "msg",
-      repository: { full_name: "owner/repo" },
-    });
-    expect(out?.url).toBeUndefined();
-    expect(out?.repo).toBe("owner/repo");
-  });
-
-  it("falls back to html_url repo extraction when repository object is missing", async () => {
-    const out = await collectFirstCommit({
-      sha: "abcdef1234567",
-      message: "msg",
-      html_url: "https://github.com/owner/fromurl/commit/abcdef1",
-    });
-    expect(out?.repo).toBe("owner/fromurl");
-  });
-
-  it("ignores repository object without a full_name string and falls back to url", async () => {
-    const out = await collectFirstCommit({
-      sha: "abcdef1234567",
-      message: "msg",
-      html_url: "https://github.com/owner/fallback/commit/abc",
-      repository: { other: "x" },
-    });
-    expect(out?.repo).toBe("owner/fallback");
-  });
-
-  it("leaves repo undefined when no repo info is available", async () => {
-    const out = await collectFirstCommit({
-      sha: "abcdef1234567",
-      message: "msg",
-    });
-    expect(out?.repo).toBeUndefined();
-  });
-
-  it("returns no item when the commit entry is not an object", async () => {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "search_commits") {
-        return Promise.resolve(textContent(["bad", 1, null]));
-      }
-      return Promise.resolve(textContent([]));
-    });
-
-    const result = await collectGithubActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-      username: USERNAME,
-    });
-    expect(result.filter((r) => r.type === "commit_authored")).toHaveLength(0);
   });
 });

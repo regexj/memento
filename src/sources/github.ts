@@ -108,16 +108,6 @@ function extractRepoFromHtmlUrl(url: string | undefined): string | undefined {
   return match ? match[1] : undefined;
 }
 
-function extractRepoFromRepositoryUrl(
-  url: string | undefined,
-): string | undefined {
-  if (url === undefined) {
-    return undefined;
-  }
-  const match = /repos\/([^/]+\/[^/]+)/.exec(url);
-  return match ? match[1] : undefined;
-}
-
 function resolveRepo(item: Record<string, unknown>): string | undefined {
   const repository = item["repository"];
   if (isRecord(repository)) {
@@ -126,11 +116,7 @@ function resolveRepo(item: Record<string, unknown>): string | undefined {
       return fullName;
     }
   }
-  const fromHtml = extractRepoFromHtmlUrl(getString(item["html_url"]));
-  if (fromHtml !== undefined) {
-    return fromHtml;
-  }
-  return extractRepoFromRepositoryUrl(getString(item["repository_url"]));
+  return extractRepoFromHtmlUrl(getString(item["html_url"]));
 }
 
 function shapePrOrIssue(type: string): (raw: unknown) => ActivityItem | null {
@@ -151,36 +137,6 @@ function shapePrOrIssue(type: string): (raw: unknown) => ActivityItem | null {
     }
     return item;
   };
-}
-
-function shapeCommit(raw: unknown): ActivityItem | null {
-  if (!isRecord(raw)) {
-    return null;
-  }
-  const sha = getString(raw["sha"]);
-  const shortSha = sha !== undefined ? sha.slice(0, 7) : "unknown";
-  const message = getString(raw["message"]);
-  const firstLine = message !== undefined ? message.split("\n")[0]! : "";
-  const title = firstLine.length > 0 ? `${shortSha} ${firstLine}` : shortSha;
-  const item: ActivityItem = { type: "commit_authored", title };
-  const url = getString(raw["html_url"]);
-  if (url !== undefined) {
-    item.url = url;
-  }
-  const repository = raw["repository"];
-  if (isRecord(repository)) {
-    const fullName = getString(repository["full_name"]);
-    if (fullName !== undefined) {
-      item.repo = fullName;
-    }
-  }
-  if (item.repo === undefined) {
-    const fromHtml = extractRepoFromHtmlUrl(url);
-    if (fromHtml !== undefined) {
-      item.repo = fromHtml;
-    }
-  }
-  return item;
 }
 
 function buildInvocations(
@@ -219,12 +175,6 @@ function buildInvocations(
       query: `is:issue assignee:${username} closed:${from}..${to}`,
       type: "issue_closed",
       shaper: shapePrOrIssue("issue_closed"),
-    },
-    {
-      tool: "search_commits",
-      query: `author:${username} author-date:${from}..${to}`,
-      type: "commit_authored",
-      shaper: shapeCommit,
     },
   ];
 }
