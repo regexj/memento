@@ -59,6 +59,7 @@ export interface McpServerConfig {
   args?: string[];
   url?: string;
   env?: Record<string, string>;
+  headers?: Record<string, string>;
   toolCalls: ToolCallConfig[];
 }
 

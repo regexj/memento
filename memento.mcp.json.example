@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "github": {
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer ghp_your-github-pat-here"
+      }
+    },
+    "atlassian": {
+      "url": "https://mcp.atlassian.com/v1/sse",
+      "headers": {
+        "Authorization": "Bearer your-atlassian-token-here"
+      }
+    },
+    "calendar": {
+      "url": "https://calendarmcp.googleapis.com/mcp/v1"
+    },
+    "drive": {
+      "url": "https://drivemcp.googleapis.com/mcp/v1"
+    }
+  },
+  "sources": {
+    "github": "github",
+    "jira": "atlassian",
+    "confluence": "atlassian",
+    "calendar": "calendar",
+    "drive": "drive"
+  }
+}

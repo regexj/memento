@@ -145,5 +145,11 @@ vite.config.ts.timestamp-*
 # Memento diary output (personal work data)
 diary/
 
+# Memento last-run marker
+.last-run
+
+# Memento MCP server config (contains credentials)
+memento.mcp.json
+
 # Agent specs
 .kiro/specs
