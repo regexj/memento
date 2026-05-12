@@ -66,11 +66,11 @@ describe("collectDriveActivity — happy path", () => {
     vi.clearAllMocks();
   });
 
-  it("calls search_files with a date-bounded ownership query and shapes authored documents", async () => {
+  it("calls search_drive_files with a date-bounded ownership query and shapes authored documents", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "search_files") {
+      if (toolName === "search_drive_files") {
         return Promise.resolve(
           textContent("files", [
             {
@@ -99,9 +99,13 @@ describe("collectDriveActivity — happy path", () => {
 
     expect(manager.connect).toHaveBeenCalledWith(SERVER_CONFIG);
     expect(manager.callTool).toHaveBeenCalledTimes(1);
-    expect(manager.callTool).toHaveBeenCalledWith(FAKE_CLIENT, "search_files", {
-      q: EXPECTED_QUERY,
-    });
+    expect(manager.callTool).toHaveBeenCalledWith(
+      FAKE_CLIENT,
+      "search_drive_files",
+      {
+        q: EXPECTED_QUERY,
+      },
+    );
 
     expect(result).toEqual([
       {
@@ -130,10 +134,10 @@ describe("collectDriveActivity — happy path", () => {
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation(
       (_client: Client, toolName: string, args: Record<string, unknown>) => {
-        if (toolName === "search_files") {
+        if (toolName === "search_drive_files") {
           return Promise.resolve(textContent("files", []));
         }
-        if (toolName === "read_file_content") {
+        if (toolName === "get_drive_file_content") {
           const fileId = args["fileId"];
           if (fileId === "file-notes-1") {
             return Promise.resolve(
@@ -158,11 +162,11 @@ describe("collectDriveActivity — happy path", () => {
     });
 
     const readCalls = manager.callTool.mock.calls.filter(
-      (c) => c[1] === "read_file_content",
+      (c) => c[1] === "get_drive_file_content",
     );
     expect(readCalls).toEqual([
-      [FAKE_CLIENT, "read_file_content", { fileId: "file-notes-1" }],
-      [FAKE_CLIENT, "read_file_content", { fileId: "file-transcript-1" }],
+      [FAKE_CLIENT, "get_drive_file_content", { fileId: "file-notes-1" }],
+      [FAKE_CLIENT, "get_drive_file_content", { fileId: "file-transcript-1" }],
     ]);
 
     expect(result).toEqual([
@@ -185,23 +189,17 @@ describe("collectDriveActivity — happy path", () => {
     );
   });
 
-  it("deduplicates fileIds across search_files and attachments", async () => {
+  it("deduplicates fileIds across search_drive_files and attachments — meeting notes replaces authored entry", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation(
       (_client: Client, toolName: string, args: Record<string, unknown>) => {
-        if (toolName === "search_files") {
+        if (toolName === "search_drive_files") {
           return Promise.resolve(
             textContent("files", [
               {
                 id: "shared-file",
                 name: "Shared Notes",
-                webViewLink: "https://docs.google.com/d/shared-file",
-                modifiedTime: "2025-06-06T08:00:00.000Z",
-              },
-              {
-                id: "shared-file",
-                name: "Shared Notes (duplicate)",
                 webViewLink: "https://docs.google.com/d/shared-file",
                 modifiedTime: "2025-06-06T08:00:00.000Z",
               },
@@ -215,7 +213,7 @@ describe("collectDriveActivity — happy path", () => {
           );
         }
         if (
-          toolName === "read_file_content" &&
+          toolName === "get_drive_file_content" &&
           args["fileId"] === "shared-file"
         ) {
           return Promise.resolve(
@@ -233,17 +231,9 @@ describe("collectDriveActivity — happy path", () => {
       attachmentFileIds: ["shared-file"],
     });
 
-    const authored = result.filter(
-      (item) => item.type === "drive_document_authored",
-    );
-    expect(authored).toHaveLength(2);
-    expect(authored.map((item) => item.fileId)).toEqual([
-      "shared-file",
-      "other-file",
-    ]);
-
-    const notes = result.filter((item) => item.type === "drive_meeting_notes");
-    expect(notes).toEqual([
+    // The shared-file should be replaced by the meeting notes version
+    expect(result).toHaveLength(2);
+    expect(result).toEqual([
       {
         type: "drive_meeting_notes",
         title: "Shared Notes",
@@ -251,14 +241,21 @@ describe("collectDriveActivity — happy path", () => {
         fileId: "shared-file",
         metadata: { content: "Meeting body" },
       },
+      {
+        type: "drive_document_authored",
+        title: "Other",
+        url: "https://docs.google.com/d/other-file",
+        lastModified: "2025-06-04T10:00:00.000Z",
+        fileId: "other-file",
+      },
     ]);
   });
 
-  it("does not call read_file_content when attachmentFileIds is omitted", async () => {
+  it("does not call get_drive_file_content when attachmentFileIds is omitted", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "search_files") {
+      if (toolName === "search_drive_files") {
         return Promise.resolve(textContent("files", []));
       }
       return Promise.resolve({});
@@ -271,14 +268,14 @@ describe("collectDriveActivity — happy path", () => {
     });
 
     const toolNames = manager.callTool.mock.calls.map((c) => c[1]);
-    expect(toolNames).not.toContain("read_file_content");
+    expect(toolNames).not.toContain("get_drive_file_content");
   });
 
-  it("does not call read_file_content when attachmentFileIds is an empty array", async () => {
+  it("does not call get_drive_file_content when attachmentFileIds is an empty array", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "search_files") {
+      if (toolName === "search_drive_files") {
         return Promise.resolve(textContent("files", []));
       }
       return Promise.resolve({});
@@ -292,7 +289,7 @@ describe("collectDriveActivity — happy path", () => {
     });
 
     const toolNames = manager.callTool.mock.calls.map((c) => c[1]);
-    expect(toolNames).not.toContain("read_file_content");
+    expect(toolNames).not.toContain("get_drive_file_content");
   });
 });
 
@@ -343,14 +340,14 @@ describe("collectDriveActivity — tool call failures", () => {
     vi.clearAllMocks();
   });
 
-  it("logs warning when search_files throws and still processes attachment fileIds", async () => {
+  it("logs warning when search_drive_files throws and still processes attachment fileIds", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "search_files") {
+      if (toolName === "search_drive_files") {
         return Promise.reject(new Error("search broke"));
       }
-      if (toolName === "read_file_content") {
+      if (toolName === "get_drive_file_content") {
         return Promise.resolve(
           textObject("content", { content: "transcript" }),
         );
@@ -374,16 +371,16 @@ describe("collectDriveActivity — tool call failures", () => {
       },
     ]);
     expect(logger.warn).toHaveBeenCalledWith(
-      'Drive tool "search_files" failed',
+      'Drive tool "search_drive_files" failed',
       "search broke",
     );
   });
 
-  it("coerces non-Error search_files rejection reasons via String()", async () => {
+  it("coerces non-Error search_drive_files rejection reasons via String()", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "search_files") {
+      if (toolName === "search_drive_files") {
         return Promise.reject("bad search");
       }
       return Promise.resolve({});
@@ -396,20 +393,20 @@ describe("collectDriveActivity — tool call failures", () => {
     });
 
     expect(logger.warn).toHaveBeenCalledWith(
-      'Drive tool "search_files" failed',
+      'Drive tool "search_drive_files" failed',
       "bad search",
     );
   });
 
-  it("logs warning when read_file_content throws for one fileId and continues with others", async () => {
+  it("logs warning when get_drive_file_content throws for one fileId and continues with others", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation(
       (_client: Client, toolName: string, args: Record<string, unknown>) => {
-        if (toolName === "search_files") {
+        if (toolName === "search_drive_files") {
           return Promise.resolve(textContent("files", []));
         }
-        if (toolName === "read_file_content") {
+        if (toolName === "get_drive_file_content") {
           if (args["fileId"] === "broken") {
             return Promise.reject(new Error("fetch broke"));
           }
@@ -435,19 +432,19 @@ describe("collectDriveActivity — tool call failures", () => {
       },
     ]);
     expect(logger.warn).toHaveBeenCalledWith(
-      'Drive tool "read_file_content" failed for fileId "broken"',
+      'Drive tool "get_drive_file_content" failed for fileId "broken"',
       "fetch broke",
     );
   });
 
-  it("coerces non-Error read_file_content rejection reasons via String()", async () => {
+  it("coerces non-Error get_drive_file_content rejection reasons via String()", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "search_files") {
+      if (toolName === "search_drive_files") {
         return Promise.resolve(textContent("files", []));
       }
-      if (toolName === "read_file_content") {
+      if (toolName === "get_drive_file_content") {
         return Promise.reject("read broke");
       }
       return Promise.resolve({});
@@ -461,13 +458,13 @@ describe("collectDriveActivity — tool call failures", () => {
     });
 
     expect(logger.warn).toHaveBeenCalledWith(
-      'Drive tool "read_file_content" failed for fileId "file-1"',
+      'Drive tool "get_drive_file_content" failed for fileId "file-1"',
       "read broke",
     );
   });
 });
 
-describe("collectDriveActivity — search_files response parsing", () => {
+describe("collectDriveActivity — search_drive_files response parsing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -476,7 +473,7 @@ describe("collectDriveActivity — search_files response parsing", () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "search_files") {
+      if (toolName === "search_drive_files") {
         return Promise.resolve(response);
       }
       return Promise.resolve({});
@@ -651,7 +648,7 @@ describe("collectDriveActivity — search_files response parsing", () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "search_files") {
+      if (toolName === "search_drive_files") {
         return Promise.resolve(
           textContent("files", [
             {
@@ -682,7 +679,7 @@ describe("collectDriveActivity — search_files response parsing", () => {
   });
 });
 
-describe("collectDriveActivity — read_file_content response parsing", () => {
+describe("collectDriveActivity — get_drive_file_content response parsing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -693,10 +690,10 @@ describe("collectDriveActivity — read_file_content response parsing", () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "search_files") {
+      if (toolName === "search_drive_files") {
         return Promise.resolve(textContent("files", []));
       }
-      if (toolName === "read_file_content") {
+      if (toolName === "get_drive_file_content") {
         return Promise.resolve(response);
       }
       return Promise.resolve({});

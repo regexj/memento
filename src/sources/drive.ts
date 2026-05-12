@@ -160,7 +160,7 @@ async function collectAuthoredDocuments(
 ): Promise<ActivityItem[]> {
   const items: ActivityItem[] = [];
   try {
-    const raw = await manager.callTool(client, "search_files", {
+    const raw = await manager.callTool(client, "search_drive_files", {
       q: buildSearchQuery(window),
     });
     const files = parseArrayToolResult(raw, "files");
@@ -197,7 +197,7 @@ async function collectAuthoredDocuments(
       items.push(item);
     }
   } catch (error) {
-    logger.warn('Drive tool "search_files" failed', errorMessage(error));
+    logger.warn('Drive tool "search_drive_files" failed', errorMessage(error));
   }
   return items;
 }
@@ -209,7 +209,7 @@ async function fetchMeetingNotes(
   authoredByFileId: Map<string, AuthoredFileMeta>,
 ): Promise<ActivityItem | null> {
   try {
-    const raw = await manager.callTool(client, "read_file_content", {
+    const raw = await manager.callTool(client, "get_drive_file_content", {
       fileId,
     });
     const contentObject = parseObjectToolResult(raw, "content");
@@ -233,7 +233,7 @@ async function fetchMeetingNotes(
     return item;
   } catch (error) {
     logger.warn(
-      `Drive tool "read_file_content" failed for fileId "${fileId}"`,
+      `Drive tool "get_drive_file_content" failed for fileId "${fileId}"`,
       errorMessage(error),
     );
     return null;
@@ -273,7 +273,16 @@ export async function collectDriveActivity(
         authoredByFileId,
       );
       if (item !== null) {
-        activities.push(item);
+        // De-duplicate: if this fileId already exists as a drive_document_authored
+        // entry, replace it with the richer drive_meeting_notes version
+        const existingIndex = activities.findIndex(
+          (a) => a.fileId === fileId && a.type === "drive_document_authored",
+        );
+        if (existingIndex !== -1) {
+          activities[existingIndex] = item;
+        } else {
+          activities.push(item);
+        }
       }
     }
   }
