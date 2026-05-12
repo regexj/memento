@@ -1,5 +1,6 @@
 import type { MementoConfig } from "../define-config.ts";
-import { validateConfig } from "../load-config.ts";
+import { resolveSourceServerConfigs, validateConfig } from "../load-config.ts";
+import type { ValidatedConfig } from "../load-config.ts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../logger.ts");
@@ -380,5 +381,166 @@ describe("validateConfig", () => {
       expect(result.sources.jira?.server).toBe("atlassian");
       expect(result.reviewCycleMonth).toBe(6);
     });
+  });
+});
+
+describe("resolveSourceServerConfigs", () => {
+  function makeValidatedConfig(
+    overrides: Partial<ValidatedConfig> = {},
+  ): ValidatedConfig {
+    return {
+      llm: { provider: "anthropic", model: "claude-sonnet-4", apiKey: "k" },
+      sources: {},
+      mcpServers: {},
+      reviewCycleMonth: 1,
+      ...overrides,
+    };
+  }
+
+  it("returns an empty object when no sources are enabled", () => {
+    const config = makeValidatedConfig({ sources: {} });
+    expect(resolveSourceServerConfigs(config)).toEqual({});
+  });
+
+  it("resolves a stdio server for github", () => {
+    const config = makeValidatedConfig({
+      sources: {
+        github: { enabled: true, server: "gh", username: "alice" },
+      },
+      mcpServers: {
+        gh: { command: "node", args: ["gh.js"], env: { TOKEN: "x" } },
+      },
+    });
+
+    const result = resolveSourceServerConfigs(config);
+    expect(result.github).toEqual({
+      name: "gh",
+      command: "node",
+      args: ["gh.js"],
+      env: { TOKEN: "x" },
+      toolCalls: [],
+    });
+  });
+
+  it("resolves an HTTP server for github", () => {
+    const config = makeValidatedConfig({
+      sources: {
+        github: { enabled: true, server: "gh-http", username: "alice" },
+      },
+      mcpServers: {
+        "gh-http": {
+          url: "https://api.github.com/mcp",
+          headers: { Authorization: "Bearer tok" },
+        },
+      },
+    });
+
+    const result = resolveSourceServerConfigs(config);
+    expect(result.github).toEqual({
+      name: "gh-http",
+      url: "https://api.github.com/mcp",
+      headers: { Authorization: "Bearer tok" },
+      toolCalls: [],
+    });
+  });
+
+  it("resolves multiple sources sharing the same server", () => {
+    const config = makeValidatedConfig({
+      sources: {
+        jira: {
+          enabled: true,
+          server: "atlassian",
+          username: "user",
+          baseUrl: "https://x.atlassian.net",
+        },
+        confluence: {
+          enabled: true,
+          server: "atlassian",
+          baseUrl: "https://x.atlassian.net/wiki",
+        },
+      },
+      mcpServers: {
+        atlassian: { command: "uvx", args: ["mcp-atlassian"] },
+      },
+    });
+
+    const result = resolveSourceServerConfigs(config);
+    expect(result.jira?.name).toBe("atlassian");
+    expect(result.confluence?.name).toBe("atlassian");
+  });
+
+  it("resolves calendar and drive sources", () => {
+    const config = makeValidatedConfig({
+      sources: {
+        calendar: { enabled: true, server: "google" },
+        drive: { enabled: true, server: "google" },
+      },
+      mcpServers: {
+        google: {
+          command: "uvx",
+          args: ["workspace-mcp"],
+          env: {
+            GOOGLE_OAUTH_CLIENT_ID: "id",
+            GOOGLE_OAUTH_CLIENT_SECRET: "secret",
+          },
+        },
+      },
+    });
+
+    const result = resolveSourceServerConfigs(config);
+    expect(result.calendar).toEqual({
+      name: "google",
+      command: "uvx",
+      args: ["workspace-mcp"],
+      env: {
+        GOOGLE_OAUTH_CLIENT_ID: "id",
+        GOOGLE_OAUTH_CLIENT_SECRET: "secret",
+      },
+      toolCalls: [],
+    });
+    expect(result.drive).toEqual(result.calendar);
+  });
+
+  it("skips disabled sources", () => {
+    const config = makeValidatedConfig({
+      sources: {
+        github: { enabled: false, server: "gh", username: "alice" },
+      },
+      mcpServers: {
+        gh: { command: "node" },
+      },
+    });
+
+    const result = resolveSourceServerConfigs(config);
+    expect(result.github).toBeUndefined();
+  });
+
+  it("skips a source when its server key is not in mcpServers", () => {
+    const config = makeValidatedConfig({
+      sources: {
+        github: { enabled: true, server: "missing", username: "alice" },
+        jira: {
+          enabled: true,
+          server: "missing",
+          username: "user",
+          baseUrl: "https://x.atlassian.net",
+        },
+        confluence: {
+          enabled: true,
+          server: "missing",
+          baseUrl: "https://x.atlassian.net/wiki",
+        },
+        calendar: { enabled: true, server: "missing" },
+        drive: { enabled: true, server: "missing" },
+      },
+      mcpServers: {},
+    });
+
+    const result = resolveSourceServerConfigs(config);
+    expect(result.github).toBeUndefined();
+    expect(result.jira).toBeUndefined();
+    expect(result.confluence).toBeUndefined();
+    expect(result.calendar).toBeUndefined();
+    expect(result.drive).toBeUndefined();
   });
 });

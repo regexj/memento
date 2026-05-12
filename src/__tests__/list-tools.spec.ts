@@ -1,4 +1,3 @@
-import type { SourceServerConfigs } from "../collector.ts";
 import {
   formatTool,
   main,
@@ -6,25 +5,42 @@ import {
   pickServers,
   run,
 } from "../list-tools.ts";
+import {
+  type ValidatedConfig,
+  loadConfig,
+  resolveSourceServerConfigs,
+} from "../load-config.ts";
 import { logger } from "../logger.ts";
 import { type McpToolInfo, createMcpClientManager } from "../mcp.ts";
-import { loadSourceServerConfigs } from "../source-config.ts";
-import type { McpServerConfig } from "../types.ts";
+import type { McpServerConfig, SourceServerConfigs } from "../types.ts";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../mcp.ts", () => ({
   createMcpClientManager: vi.fn(),
 }));
-vi.mock("../source-config.ts", () => ({
-  loadSourceServerConfigs: vi.fn(),
+vi.mock("../load-config.ts", () => ({
+  loadConfig: vi.fn(),
+  resolveSourceServerConfigs: vi.fn(),
 }));
 vi.mock("../logger.ts");
 
 const mockedCreateMcpClientManager = vi.mocked(createMcpClientManager);
-const mockedLoadSourceServerConfigs = vi.mocked(loadSourceServerConfigs);
+const mockedLoadConfig = vi.mocked(loadConfig);
+const mockedResolveSourceServerConfigs = vi.mocked(resolveSourceServerConfigs);
 
 const FAKE_CLIENT = {} as Client;
+
+function makeConfig(): ValidatedConfig {
+  return {
+    llm: { provider: "anthropic", model: "claude-sonnet-4", apiKey: "sk-x" },
+    sources: {
+      github: { enabled: true, server: "github", username: "alice" },
+    },
+    mcpServers: { github: { command: "node", args: ["gh.js"] } },
+    reviewCycleMonth: 1,
+  };
+}
 
 function makeServerConfig(
   name: string,
@@ -51,36 +67,9 @@ function makeManager(): ReturnType<typeof createMcpClientManager> {
 describe("parseArgs", () => {
   it("returns defaults when no args are provided", () => {
     expect(parseArgs([])).toEqual({
-      configPath: undefined,
       includeSchema: false,
       sourceFilters: [],
     });
-  });
-
-  it("parses --mcp-config <path> form", () => {
-    expect(parseArgs(["--mcp-config", "/etc/memento.mcp.json"])).toEqual({
-      configPath: "/etc/memento.mcp.json",
-      includeSchema: false,
-      sourceFilters: [],
-    });
-  });
-
-  it("parses --mcp-config=<path> form", () => {
-    expect(parseArgs(["--mcp-config=/tmp/foo.json"])).toEqual({
-      configPath: "/tmp/foo.json",
-      includeSchema: false,
-      sourceFilters: [],
-    });
-  });
-
-  it("throws on a trailing --mcp-config with no value", () => {
-    expect(() => parseArgs(["--mcp-config"])).toThrow(
-      "Unknown flag: --mcp-config",
-    );
-  });
-
-  it("accepts an empty string after --mcp-config=", () => {
-    expect(parseArgs(["--mcp-config="]).configPath).toBe("");
   });
 
   it("sets includeSchema when --schema is present", () => {
@@ -95,10 +84,7 @@ describe("parseArgs", () => {
   });
 
   it("combines flags and filters in any order", () => {
-    expect(
-      parseArgs(["github", "--schema", "--mcp-config=/x.json", "jira"]),
-    ).toEqual({
-      configPath: "/x.json",
+    expect(parseArgs(["github", "--schema", "jira"])).toEqual({
       includeSchema: true,
       sourceFilters: ["github", "jira"],
     });
@@ -212,9 +198,6 @@ describe("pickServers", () => {
 
   it("returns an empty array when filters match none of the configured sources", () => {
     const configs: SourceServerConfigs = { github, jira };
-    // Filtering to something that IS configured but with empty filter list
-    // would short-circuit above. This verifies behaviour when filters match a
-    // subset — nothing surprising should happen.
     expect(pickServers(configs, ["github"])).toEqual([
       { source: "github", config: github },
     ]);
@@ -234,6 +217,7 @@ describe("main", () => {
     stdoutSpy = vi
       .spyOn(process.stdout, "write")
       .mockImplementation(() => true);
+    mockedLoadConfig.mockReturnValue(makeConfig());
   });
 
   afterEach(() => {
@@ -243,13 +227,13 @@ describe("main", () => {
   });
 
   it("prints a friendly message when no servers are configured", async () => {
-    mockedLoadSourceServerConfigs.mockReturnValue({});
+    mockedResolveSourceServerConfigs.mockReturnValue({});
     process.argv = ["node", "list-tools.ts"];
 
     await main();
 
     expect(stdoutSpy).toHaveBeenCalledWith(
-      "No MCP servers configured. Add one to memento.mcp.json.\n",
+      "No MCP servers configured. Check your memento.config.ts sources.\n",
     );
     expect(mockedCreateMcpClientManager).not.toHaveBeenCalled();
     expect(process.exitCode).toBeUndefined();
@@ -257,7 +241,7 @@ describe("main", () => {
 
   it("connects to each configured server, sorts tools by name, and disconnects", async () => {
     const github = makeServerConfig("github");
-    mockedLoadSourceServerConfigs.mockReturnValue({ github });
+    mockedResolveSourceServerConfigs.mockReturnValue({ github });
     const manager = makeManager();
     (manager.listTools as ReturnType<typeof vi.fn>).mockResolvedValue([
       { name: "zoo", inputSchema: { type: "object" } },
@@ -290,7 +274,7 @@ describe("main", () => {
   });
 
   it("prints '(no tools exposed)' when a server returns an empty tool list", async () => {
-    mockedLoadSourceServerConfigs.mockReturnValue({
+    mockedResolveSourceServerConfigs.mockReturnValue({
       github: makeServerConfig("github"),
     });
     const manager = makeManager();
@@ -308,26 +292,8 @@ describe("main", () => {
     expect(process.exitCode).toBeUndefined();
   });
 
-  it("passes --mcp-config through to loadSourceServerConfigs", async () => {
-    mockedLoadSourceServerConfigs.mockReturnValue({});
-    process.argv = ["node", "list-tools.ts", "--mcp-config=/custom.json"];
-
-    await main();
-
-    expect(mockedLoadSourceServerConfigs).toHaveBeenCalledWith("/custom.json");
-  });
-
-  it("calls loadSourceServerConfigs with no argument when --mcp-config is absent", async () => {
-    mockedLoadSourceServerConfigs.mockReturnValue({});
-    process.argv = ["node", "list-tools.ts"];
-
-    await main();
-
-    expect(mockedLoadSourceServerConfigs).toHaveBeenCalledWith();
-  });
-
   it("emits JSON schemas in output when --schema is set", async () => {
-    mockedLoadSourceServerConfigs.mockReturnValue({
+    mockedResolveSourceServerConfigs.mockReturnValue({
       github: makeServerConfig("github"),
     });
     const manager = makeManager();
@@ -351,7 +317,7 @@ describe("main", () => {
   });
 
   it("logs, prints, and sets exit code 1 when a server fails, but continues to the next", async () => {
-    mockedLoadSourceServerConfigs.mockReturnValue({
+    mockedResolveSourceServerConfigs.mockReturnValue({
       github: makeServerConfig("github"),
       jira: makeServerConfig("atlassian"),
     });
@@ -387,7 +353,7 @@ describe("main", () => {
   });
 
   it("coerces non-Error failures via String() when logging and reporting", async () => {
-    mockedLoadSourceServerConfigs.mockReturnValue({
+    mockedResolveSourceServerConfigs.mockReturnValue({
       github: makeServerConfig("github"),
     });
     const manager = makeManager();
@@ -408,7 +374,7 @@ describe("main", () => {
   });
 
   it("disconnects the manager even when every server fails", async () => {
-    mockedLoadSourceServerConfigs.mockReturnValue({
+    mockedResolveSourceServerConfigs.mockReturnValue({
       github: makeServerConfig("github"),
     });
     const manager = makeManager();
@@ -426,7 +392,7 @@ describe("main", () => {
   });
 
   it("restricts output to filtered sources only", async () => {
-    mockedLoadSourceServerConfigs.mockReturnValue({
+    mockedResolveSourceServerConfigs.mockReturnValue({
       github: makeServerConfig("github"),
       jira: makeServerConfig("atlassian"),
     });
@@ -466,6 +432,7 @@ describe("run", () => {
     stdoutSpy = vi
       .spyOn(process.stdout, "write")
       .mockImplementation(() => true);
+    mockedLoadConfig.mockReturnValue(makeConfig());
   });
 
   afterEach(() => {
@@ -475,7 +442,7 @@ describe("run", () => {
   });
 
   it("sets process.exitCode to 1 and prints an Error message when main rejects", async () => {
-    mockedLoadSourceServerConfigs.mockImplementation(() => {
+    mockedResolveSourceServerConfigs.mockImplementation(() => {
       throw new Error("config broken");
     });
 
@@ -491,7 +458,7 @@ describe("run", () => {
   });
 
   it("coerces non-Error rejection reasons via String()", async () => {
-    mockedLoadSourceServerConfigs.mockImplementation(() => {
+    mockedResolveSourceServerConfigs.mockImplementation(() => {
       throw "raw failure";
     });
 
@@ -507,7 +474,7 @@ describe("run", () => {
   });
 
   it("leaves process.exitCode unchanged when main resolves cleanly", async () => {
-    mockedLoadSourceServerConfigs.mockReturnValue({});
+    mockedResolveSourceServerConfigs.mockReturnValue({});
 
     run();
     await new Promise((resolve) => setImmediate(resolve));

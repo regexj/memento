@@ -1,8 +1,7 @@
-import type { SourceServerConfigs } from "./collector.ts";
+import { loadConfig, resolveSourceServerConfigs } from "./load-config.ts";
 import { logger } from "./logger.ts";
 import { type McpToolInfo, createMcpClientManager } from "./mcp.ts";
-import { loadSourceServerConfigs } from "./source-config.ts";
-import type { McpServerConfig } from "./types.ts";
+import type { McpServerConfig, SourceServerConfigs } from "./types.ts";
 import { errorMessage } from "./util.ts";
 import { fileURLToPath } from "node:url";
 
@@ -15,32 +14,20 @@ import { fileURLToPath } from "node:url";
  *   npm run list-tools                          # list tools for every server
  *   npm run list-tools -- github                # filter by source name(s)
  *   npm run list-tools -- --schema              # include input schemas
- *   npm run list-tools -- --mcp-config=path.json
  */
 
 export interface ParsedArgs {
-  configPath: string | undefined;
   includeSchema: boolean;
   sourceFilters: string[];
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
-  let configPath: string | undefined;
   let includeSchema = false;
   const sourceFilters: string[] = [];
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === undefined) {
-      continue;
-    }
-    if (arg === "--mcp-config" && i + 1 < argv.length) {
-      configPath = argv[i + 1];
-      i += 1;
-      continue;
-    }
-    if (arg.startsWith("--mcp-config=")) {
-      configPath = arg.slice("--mcp-config=".length);
       continue;
     }
     if (arg === "--schema") {
@@ -53,7 +40,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     sourceFilters.push(arg);
   }
 
-  return { configPath, includeSchema, sourceFilters };
+  return { includeSchema, sourceFilters };
 }
 
 export function formatTool(tool: McpToolInfo, includeSchema: boolean): string {
@@ -98,15 +85,13 @@ export function pickServers(
 
 export async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const serverConfigs =
-    args.configPath !== undefined
-      ? loadSourceServerConfigs(args.configPath)
-      : loadSourceServerConfigs();
+  const config = loadConfig();
+  const serverConfigs = resolveSourceServerConfigs(config);
 
   const servers = pickServers(serverConfigs, args.sourceFilters);
   if (servers.length === 0) {
     process.stdout.write(
-      "No MCP servers configured. Add one to memento.mcp.json.\n",
+      "No MCP servers configured. Check your memento.config.ts sources.\n",
     );
     return;
   }
@@ -114,10 +99,12 @@ export async function main(): Promise<void> {
   const manager = createMcpClientManager();
   let hadFailure = false;
   try {
-    for (const { source, config } of servers) {
-      process.stdout.write(`\n=== ${source} (server: "${config.name}") ===\n`);
+    for (const { source, config: serverConfig } of servers) {
+      process.stdout.write(
+        `\n=== ${source} (server: "${serverConfig.name}") ===\n`,
+      );
       try {
-        const client = await manager.connect(config);
+        const client = await manager.connect(serverConfig);
         const tools = await manager.listTools(client);
         if (tools.length === 0) {
           process.stdout.write("  (no tools exposed)\n");

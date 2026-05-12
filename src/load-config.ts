@@ -1,5 +1,6 @@
 import { config as rawConfig } from "../memento.config.ts";
 import { logger } from "./logger.ts";
+import type { McpServerConfig, SourceServerConfigs } from "./types.ts";
 import { z } from "zod";
 
 const CLOUD_PROVIDERS = ["anthropic", "openai", "google", "mistral"] as const;
@@ -165,6 +166,73 @@ export function validateConfig(input: unknown): ValidatedConfig {
     process.exit(1);
   }
   return result.data;
+}
+
+type McpServerEntry = z.infer<typeof McpServerEntrySchema>;
+
+function toMcpServerConfig(
+  name: string,
+  entry: McpServerEntry,
+): McpServerConfig {
+  if ("command" in entry) {
+    return {
+      name,
+      command: entry.command,
+      args: entry.args,
+      env: entry.env,
+      toolCalls: [],
+    };
+  }
+  return {
+    name,
+    url: entry.url,
+    headers: entry.headers,
+    toolCalls: [],
+  };
+}
+
+/**
+ * Resolves the validated config's `sources` + `mcpServers` into the
+ * `SourceServerConfigs` map that collection expects.
+ */
+export function resolveSourceServerConfigs(
+  config: ValidatedConfig,
+): SourceServerConfigs {
+  const result: SourceServerConfigs = {};
+  const sources = config.sources;
+
+  if (sources.github?.enabled) {
+    const entry = config.mcpServers[sources.github.server];
+    if (entry) {
+      result.github = toMcpServerConfig(sources.github.server, entry);
+    }
+  }
+  if (sources.jira?.enabled) {
+    const entry = config.mcpServers[sources.jira.server];
+    if (entry) {
+      result.jira = toMcpServerConfig(sources.jira.server, entry);
+    }
+  }
+  if (sources.confluence?.enabled) {
+    const entry = config.mcpServers[sources.confluence.server];
+    if (entry) {
+      result.confluence = toMcpServerConfig(sources.confluence.server, entry);
+    }
+  }
+  if (sources.calendar?.enabled) {
+    const entry = config.mcpServers[sources.calendar.server];
+    if (entry) {
+      result.calendar = toMcpServerConfig(sources.calendar.server, entry);
+    }
+  }
+  if (sources.drive?.enabled) {
+    const entry = config.mcpServers[sources.drive.server];
+    if (entry) {
+      result.drive = toMcpServerConfig(sources.drive.server, entry);
+    }
+  }
+
+  return result;
 }
 
 /* v8 ignore start */

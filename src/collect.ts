@@ -1,9 +1,8 @@
 import { collect } from "./collector.ts";
-import { loadConfig } from "./config.ts";
+import { loadConfig, resolveSourceServerConfigs } from "./load-config.ts";
 import { logger } from "./logger.ts";
 import { getCollectionWindow } from "./marker.ts";
 import { createMcpClientManager } from "./mcp.ts";
-import { loadSourceServerConfigs } from "./source-config.ts";
 import { errorMessage } from "./util.ts";
 import { fileURLToPath } from "node:url";
 
@@ -19,26 +18,9 @@ import { fileURLToPath } from "node:url";
  * Use-case: configuring a new source module or debugging MCP server configuration.
  */
 
-export function parseConfigPathArg(argv: string[]): string | undefined {
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg === "--mcp-config" && i + 1 < argv.length) {
-      return argv[i + 1];
-    }
-    if (arg !== undefined && arg.startsWith("--mcp-config=")) {
-      return arg.slice("--mcp-config=".length);
-    }
-  }
-  return undefined;
-}
-
 export async function main(): Promise<void> {
   const config = loadConfig();
-  const configPath = parseConfigPathArg(process.argv.slice(2));
-  const serverConfigs =
-    configPath !== undefined
-      ? loadSourceServerConfigs(configPath)
-      : loadSourceServerConfigs();
+  const serverConfigs = resolveSourceServerConfigs(config);
   const window = getCollectionWindow();
   const manager = createMcpClientManager();
 
@@ -51,12 +33,16 @@ export async function main(): Promise<void> {
       serverConfigs,
     });
 
+    const enabledSources = Object.entries(config.sources)
+      .filter(([, source]) => source?.enabled)
+      .map(([name]) => name);
+
     const output = {
       window: {
         from: window.from.toISOString(),
         to: window.to.toISOString(),
       },
-      enabledSources: config.enabledSources,
+      enabledSources,
       failures: result.failures,
       results: result.results,
     };

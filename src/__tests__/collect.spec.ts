@@ -1,23 +1,27 @@
-import { main, parseConfigPathArg, run } from "../collect.ts";
+import { main, run } from "../collect.ts";
 import { collect } from "../collector.ts";
-import { loadConfig } from "../config.ts";
+import {
+  type ValidatedConfig,
+  loadConfig,
+  resolveSourceServerConfigs,
+} from "../load-config.ts";
 import { logger } from "../logger.ts";
 import { getCollectionWindow } from "../marker.ts";
 import { createMcpClientManager } from "../mcp.ts";
-import { loadSourceServerConfigs } from "../source-config.ts";
 import type {
   CollectionWindow,
-  Config,
   McpServerConfig,
   SourceResult,
+  SourceServerConfigs,
 } from "../types.ts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../collector.ts", () => ({
   collect: vi.fn(),
 }));
-vi.mock("../config.ts", () => ({
+vi.mock("../load-config.ts", () => ({
   loadConfig: vi.fn(),
+  resolveSourceServerConfigs: vi.fn(),
 }));
 vi.mock("../marker.ts", () => ({
   getCollectionWindow: vi.fn(),
@@ -25,35 +29,33 @@ vi.mock("../marker.ts", () => ({
 vi.mock("../mcp.ts", () => ({
   createMcpClientManager: vi.fn(),
 }));
-vi.mock("../source-config.ts", () => ({
-  loadSourceServerConfigs: vi.fn(),
-}));
 vi.mock("../logger.ts");
 
 const mockedCollect = vi.mocked(collect);
 const mockedLoadConfig = vi.mocked(loadConfig);
+const mockedResolveSourceServerConfigs = vi.mocked(resolveSourceServerConfigs);
 const mockedGetCollectionWindow = vi.mocked(getCollectionWindow);
 const mockedCreateMcpClientManager = vi.mocked(createMcpClientManager);
-const mockedLoadSourceServerConfigs = vi.mocked(loadSourceServerConfigs);
 
 const WINDOW: CollectionWindow = {
   from: new Date("2025-06-09T00:00:00.000Z"),
   to: new Date("2025-06-16T00:00:00.000Z"),
 };
 
-function makeConfig(overrides: Partial<Config> = {}): Config {
-  const base: Config = {
-    llmProvider: "anthropic",
-    llmModel: "claude-sonnet-4",
-    llmApiKey: "sk-test",
-    githubUsername: "alice",
-    jiraUsername: "alice@example.com",
-    jiraBaseUrl: "https://jira.example.com",
-    confluenceBaseUrl: "https://confluence.example.com",
-    enabledSources: ["github"],
+function makeConfig(overrides: Partial<ValidatedConfig> = {}): ValidatedConfig {
+  const base: ValidatedConfig = {
+    llm: {
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+      apiKey: "sk-test",
+    },
+    sources: {
+      github: { enabled: true, server: "github", username: "alice" },
+    },
+    mcpServers: {
+      github: { command: "node", args: ["gh.js"] },
+    },
     reviewCycleMonth: 1,
-    diaryDir: "./diary",
-    logFile: "./memento.log",
   };
   return { ...base, ...overrides };
 }
@@ -67,7 +69,7 @@ function makeManager(): ReturnType<typeof createMcpClientManager> {
   };
 }
 
-const SERVER_CONFIGS = {
+const SERVER_CONFIGS: SourceServerConfigs = {
   github: {
     name: "github",
     command: "node",
@@ -75,48 +77,6 @@ const SERVER_CONFIGS = {
     toolCalls: [],
   } as McpServerConfig,
 };
-
-describe("parseConfigPathArg", () => {
-  it("returns undefined when no --mcp-config flag is present", () => {
-    expect(parseConfigPathArg([])).toBeUndefined();
-    expect(parseConfigPathArg(["--other", "value"])).toBeUndefined();
-  });
-
-  it("parses --mcp-config <path> form", () => {
-    expect(parseConfigPathArg(["--mcp-config", "/etc/memento.mcp.json"])).toBe(
-      "/etc/memento.mcp.json",
-    );
-  });
-
-  it("parses --mcp-config=<path> form", () => {
-    expect(parseConfigPathArg(["--mcp-config=/tmp/foo.json"])).toBe(
-      "/tmp/foo.json",
-    );
-  });
-
-  it("returns undefined when --mcp-config is the last arg with no value", () => {
-    expect(parseConfigPathArg(["--mcp-config"])).toBeUndefined();
-  });
-
-  it("returns the first --mcp-config value when multiple are provided", () => {
-    expect(
-      parseConfigPathArg([
-        "--mcp-config=/first.json",
-        "--mcp-config=/second.json",
-      ]),
-    ).toBe("/first.json");
-  });
-
-  it("skips unrelated args before finding --mcp-config", () => {
-    expect(
-      parseConfigPathArg(["--verbose", "--mcp-config", "/x.json", "extra"]),
-    ).toBe("/x.json");
-  });
-
-  it("accepts an empty string after --mcp-config=", () => {
-    expect(parseConfigPathArg(["--mcp-config="])).toBe("");
-  });
-});
 
 describe("main", () => {
   let stdoutSpy: ReturnType<typeof vi.spyOn>;
@@ -130,8 +90,8 @@ describe("main", () => {
       .mockImplementation(() => true);
 
     mockedLoadConfig.mockReturnValue(makeConfig());
+    mockedResolveSourceServerConfigs.mockReturnValue(SERVER_CONFIGS);
     mockedGetCollectionWindow.mockReturnValue(WINDOW);
-    mockedLoadSourceServerConfigs.mockReturnValue(SERVER_CONFIGS);
   });
 
   afterEach(() => {
@@ -153,13 +113,17 @@ describe("main", () => {
     await main();
 
     expect(mockedLoadConfig).toHaveBeenCalledTimes(1);
+    expect(mockedResolveSourceServerConfigs).toHaveBeenCalledTimes(1);
     expect(mockedGetCollectionWindow).toHaveBeenCalledTimes(1);
     expect(mockedCreateMcpClientManager).toHaveBeenCalledTimes(1);
-    expect(mockedLoadSourceServerConfigs).toHaveBeenCalledWith();
     expect(mockedCollect).toHaveBeenCalledWith({
       manager,
       window: WINDOW,
-      config: expect.objectContaining({ enabledSources: ["github"] }),
+      config: expect.objectContaining({
+        sources: expect.objectContaining({
+          github: expect.objectContaining({ enabled: true }),
+        }),
+      }),
       serverConfigs: SERVER_CONFIGS,
     });
 
@@ -183,20 +147,6 @@ describe("main", () => {
     expect(logger.endStage).toHaveBeenCalledWith("collect-only");
     expect(manager.disconnectAll).toHaveBeenCalledTimes(1);
     expect(logger.warn).not.toHaveBeenCalled();
-  });
-
-  it("passes the --mcp-config path through to loadSourceServerConfigs", async () => {
-    const manager = makeManager();
-    mockedCreateMcpClientManager.mockReturnValue(manager);
-    mockedCollect.mockResolvedValue({ results: [], failures: [] });
-
-    process.argv = ["node", "collect.ts", "--mcp-config=/custom/path.json"];
-
-    await main();
-
-    expect(mockedLoadSourceServerConfigs).toHaveBeenCalledWith(
-      "/custom/path.json",
-    );
   });
 
   it("logs a warning when the collector reports source failures", async () => {
@@ -238,8 +188,8 @@ describe("run", () => {
     originalExitCode = process.exitCode;
     process.exitCode = undefined;
     mockedLoadConfig.mockReturnValue(makeConfig());
+    mockedResolveSourceServerConfigs.mockReturnValue(SERVER_CONFIGS);
     mockedGetCollectionWindow.mockReturnValue(WINDOW);
-    mockedLoadSourceServerConfigs.mockReturnValue(SERVER_CONFIGS);
   });
 
   afterEach(() => {

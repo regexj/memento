@@ -1,16 +1,14 @@
 import { collect } from "../collector.ts";
-import type {
-  CollectorDependencies,
-  SourceServerConfigs,
-} from "../collector.ts";
+import type { CollectorDependencies } from "../collector.ts";
+import type { ValidatedConfig } from "../load-config.ts";
 import { logger } from "../logger.ts";
 import type { McpClientManager } from "../mcp.ts";
 import type {
   ActivityItem,
   CalendarCollectionResult,
   CollectionWindow,
-  Config,
   McpServerConfig,
+  SourceServerConfigs,
 } from "../types.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -44,21 +42,53 @@ const SERVER_CONFIGS: Required<SourceServerConfigs> = {
   drive: { name: "drive", url: "https://drive.example/mcp", toolCalls: [] },
 };
 
-function makeConfig(overrides: Partial<Config> = {}): Config {
-  const base: Config = {
-    llmProvider: "anthropic",
-    llmModel: "claude-sonnet-4",
-    llmApiKey: "sk-test",
-    githubUsername: "alice",
-    jiraUsername: "alice@example.com",
-    jiraBaseUrl: "https://jira.example.com",
-    confluenceBaseUrl: "https://confluence.example.com",
-    enabledSources: [],
+function makeConfig(overrides: Partial<ValidatedConfig> = {}): ValidatedConfig {
+  const base: ValidatedConfig = {
+    llm: {
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+      apiKey: "sk-test",
+    },
+    sources: {},
+    mcpServers: {
+      github: { command: "node", args: ["gh.js"] },
+      jira: { command: "node", args: ["jira.js"] },
+      confluence: { command: "node", args: ["confluence.js"] },
+      calendar: { url: "https://calendar.example/mcp" },
+      drive: { url: "https://drive.example/mcp" },
+    },
     reviewCycleMonth: 1,
-    diaryDir: "./diary",
-    logFile: "./memento.log",
   };
   return { ...base, ...overrides };
+}
+
+function configWithSources(...sources: string[]): ValidatedConfig {
+  const sourcesObj: ValidatedConfig["sources"] = {};
+  if (sources.includes("github")) {
+    sourcesObj.github = { enabled: true, server: "github", username: "alice" };
+  }
+  if (sources.includes("jira")) {
+    sourcesObj.jira = {
+      enabled: true,
+      server: "jira",
+      username: "alice@example.com",
+      baseUrl: "https://jira.example.com",
+    };
+  }
+  if (sources.includes("confluence")) {
+    sourcesObj.confluence = {
+      enabled: true,
+      server: "confluence",
+      baseUrl: "https://confluence.example.com",
+    };
+  }
+  if (sources.includes("calendar")) {
+    sourcesObj.calendar = { enabled: true, server: "calendar" };
+  }
+  if (sources.includes("drive")) {
+    sourcesObj.drive = { enabled: true, server: "drive" };
+  }
+  return makeConfig({ sources: sourcesObj });
 }
 
 function githubItem(): ActivityItem {
@@ -111,7 +141,7 @@ describe("collect — enabled sources selection", () => {
 
   it("runs only github and custom when only github is enabled", async () => {
     const dependencies = makeDependencies();
-    const config = makeConfig({ enabledSources: ["github"] });
+    const config = configWithSources("github");
 
     const result = await collect({
       manager: MANAGER,
@@ -133,9 +163,13 @@ describe("collect — enabled sources selection", () => {
 
   it("runs all sources and passes Calendar attachmentFileIds to Drive", async () => {
     const dependencies = makeDependencies();
-    const config = makeConfig({
-      enabledSources: ["github", "jira", "confluence", "calendar", "drive"],
-    });
+    const config = configWithSources(
+      "github",
+      "jira",
+      "confluence",
+      "calendar",
+      "drive",
+    );
 
     const result = await collect({
       manager: MANAGER,
@@ -190,7 +224,7 @@ describe("collect — enabled sources selection", () => {
 
   it("passes the custom configPath and default username when provided", async () => {
     const dependencies = makeDependencies();
-    const config = makeConfig({ enabledSources: ["github"] });
+    const config = configWithSources("github");
 
     await collect({
       manager: MANAGER,
@@ -209,12 +243,9 @@ describe("collect — enabled sources selection", () => {
     });
   });
 
-  it("falls back to jiraUsername for custom source when githubUsername is missing", async () => {
+  it("falls back to jira username for custom source when github source is not configured", async () => {
     const dependencies = makeDependencies();
-    const config = makeConfig({
-      enabledSources: [],
-      githubUsername: undefined,
-    });
+    const config = configWithSources("jira");
 
     await collect({
       manager: MANAGER,
@@ -231,13 +262,9 @@ describe("collect — enabled sources selection", () => {
     });
   });
 
-  it("uses empty username for custom source when neither github nor jira username is set", async () => {
+  it("uses empty username for custom source when neither github nor jira source is configured", async () => {
     const dependencies = makeDependencies();
-    const config = makeConfig({
-      enabledSources: [],
-      githubUsername: undefined,
-      jiraUsername: undefined,
-    });
+    const config = makeConfig({ sources: {} });
 
     await collect({
       manager: MANAGER,
@@ -255,7 +282,7 @@ describe("collect — enabled sources selection", () => {
   });
 
   it("uses built-in defaults when no dependencies override is provided", async () => {
-    const config = makeConfig({ enabledSources: [] });
+    const config = makeConfig({ sources: {} });
 
     const result = await collect({
       manager: MANAGER,
@@ -285,9 +312,7 @@ describe("collect — graceful degradation (Property 6)", () => {
         throw new Error("confluence down");
       }),
     });
-    const config = makeConfig({
-      enabledSources: ["github", "jira", "confluence"],
-    });
+    const config = configWithSources("github", "jira", "confluence");
 
     const result = await collect({
       manager: MANAGER,
@@ -316,7 +341,7 @@ describe("collect — graceful degradation (Property 6)", () => {
         throw "raw string";
       }),
     });
-    const config = makeConfig({ enabledSources: ["jira"] });
+    const config = configWithSources("jira");
 
     const result = await collect({
       manager: MANAGER,
@@ -339,7 +364,7 @@ describe("collect — graceful degradation (Property 6)", () => {
         throw new Error("calendar oauth denied");
       }),
     });
-    const config = makeConfig({ enabledSources: ["calendar", "drive"] });
+    const config = configWithSources("calendar", "drive");
 
     const result = await collect({
       manager: MANAGER,
@@ -365,7 +390,7 @@ describe("collect — graceful degradation (Property 6)", () => {
         throw new Error("drive down");
       }),
     });
-    const config = makeConfig({ enabledSources: ["calendar", "drive"] });
+    const config = configWithSources("calendar", "drive");
 
     const result = await collect({
       manager: MANAGER,
@@ -389,7 +414,7 @@ describe("collect — graceful degradation (Property 6)", () => {
         throw 42;
       }),
     });
-    const config = makeConfig({ enabledSources: ["drive"] });
+    const config = configWithSources("drive");
 
     const result = await collect({
       manager: MANAGER,
@@ -411,7 +436,7 @@ describe("collect — missing server/config errors", () => {
 
   it("fails github when serverConfigs.github is missing", async () => {
     const dependencies = makeDependencies();
-    const config = makeConfig({ enabledSources: ["github"] });
+    const config = configWithSources("github");
     const serverConfigs: SourceServerConfigs = { ...SERVER_CONFIGS };
     delete serverConfigs.github;
 
@@ -427,28 +452,9 @@ describe("collect — missing server/config errors", () => {
     expect(result.failures).toContain("github");
   });
 
-  it("fails github when config.githubUsername is missing", async () => {
-    const dependencies = makeDependencies();
-    const config = makeConfig({
-      enabledSources: ["github"],
-      githubUsername: undefined,
-    });
-
-    const result = await collect({
-      manager: MANAGER,
-      window: WINDOW,
-      config,
-      serverConfigs: SERVER_CONFIGS,
-      dependencies,
-    });
-
-    expect(dependencies.collectGithub).not.toHaveBeenCalled();
-    expect(result.failures).toContain("github");
-  });
-
   it("fails jira when serverConfigs.jira is missing", async () => {
     const dependencies = makeDependencies();
-    const config = makeConfig({ enabledSources: ["jira"] });
+    const config = configWithSources("jira");
     const serverConfigs: SourceServerConfigs = { ...SERVER_CONFIGS };
     delete serverConfigs.jira;
 
@@ -463,45 +469,9 @@ describe("collect — missing server/config errors", () => {
     expect(result.failures).toContain("jira");
   });
 
-  it("fails jira when config.jiraUsername is missing", async () => {
-    const dependencies = makeDependencies();
-    const config = makeConfig({
-      enabledSources: ["jira"],
-      jiraUsername: undefined,
-    });
-
-    const result = await collect({
-      manager: MANAGER,
-      window: WINDOW,
-      config,
-      serverConfigs: SERVER_CONFIGS,
-      dependencies,
-    });
-
-    expect(result.failures).toContain("jira");
-  });
-
-  it("fails jira when config.jiraBaseUrl is missing", async () => {
-    const dependencies = makeDependencies();
-    const config = makeConfig({
-      enabledSources: ["jira"],
-      jiraBaseUrl: undefined,
-    });
-
-    const result = await collect({
-      manager: MANAGER,
-      window: WINDOW,
-      config,
-      serverConfigs: SERVER_CONFIGS,
-      dependencies,
-    });
-
-    expect(result.failures).toContain("jira");
-  });
-
   it("fails confluence when serverConfigs.confluence is missing", async () => {
     const dependencies = makeDependencies();
-    const config = makeConfig({ enabledSources: ["confluence"] });
+    const config = configWithSources("confluence");
     const serverConfigs: SourceServerConfigs = { ...SERVER_CONFIGS };
     delete serverConfigs.confluence;
 
@@ -516,27 +486,9 @@ describe("collect — missing server/config errors", () => {
     expect(result.failures).toContain("confluence");
   });
 
-  it("fails confluence when config.confluenceBaseUrl is missing", async () => {
-    const dependencies = makeDependencies();
-    const config = makeConfig({
-      enabledSources: ["confluence"],
-      confluenceBaseUrl: undefined,
-    });
-
-    const result = await collect({
-      manager: MANAGER,
-      window: WINDOW,
-      config,
-      serverConfigs: SERVER_CONFIGS,
-      dependencies,
-    });
-
-    expect(result.failures).toContain("confluence");
-  });
-
   it("fails calendar when serverConfigs.calendar is missing", async () => {
     const dependencies = makeDependencies();
-    const config = makeConfig({ enabledSources: ["calendar"] });
+    const config = configWithSources("calendar");
     const serverConfigs: SourceServerConfigs = { ...SERVER_CONFIGS };
     delete serverConfigs.calendar;
 
@@ -553,7 +505,7 @@ describe("collect — missing server/config errors", () => {
 
   it("fails drive when serverConfigs.drive is missing", async () => {
     const dependencies = makeDependencies();
-    const config = makeConfig({ enabledSources: ["drive"] });
+    const config = configWithSources("drive");
     const serverConfigs: SourceServerConfigs = { ...SERVER_CONFIGS };
     delete serverConfigs.drive;
 
@@ -577,7 +529,7 @@ describe("collect — logging", () => {
 
   it('wraps the run in "collect" stage timing', async () => {
     const dependencies = makeDependencies();
-    const config = makeConfig({ enabledSources: [] });
+    const config = makeConfig({ sources: {} });
 
     await collect({
       manager: MANAGER,
@@ -595,7 +547,7 @@ describe("collect — logging", () => {
     const dependencies = makeDependencies({
       collectGithub: vi.fn(async () => [githubItem(), githubItem()]),
     });
-    const config = makeConfig({ enabledSources: ["github"] });
+    const config = configWithSources("github");
 
     await collect({
       manager: MANAGER,
@@ -615,7 +567,7 @@ describe("collect — logging", () => {
 
   it("logs the drive item count on Phase 2 success", async () => {
     const dependencies = makeDependencies();
-    const config = makeConfig({ enabledSources: ["drive"] });
+    const config = configWithSources("drive");
 
     await collect({
       manager: MANAGER,

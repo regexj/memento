@@ -1,3 +1,4 @@
+import type { ValidatedConfig } from "./load-config.ts";
 import { logger } from "./logger.ts";
 import type { McpClientManager } from "./mcp.ts";
 import { collectCalendarActivity } from "./sources/calendar.ts";
@@ -9,19 +10,10 @@ import { collectJiraActivity } from "./sources/jira.ts";
 import type {
   ActivityItem,
   CollectionWindow,
-  Config,
-  McpServerConfig,
   SourceResult,
+  SourceServerConfigs,
 } from "./types.ts";
 import { errorMessage } from "./util.ts";
-
-export interface SourceServerConfigs {
-  github?: McpServerConfig;
-  jira?: McpServerConfig;
-  confluence?: McpServerConfig;
-  calendar?: McpServerConfig;
-  drive?: McpServerConfig;
-}
 
 export interface CollectorDependencies {
   collectGithub: typeof collectGithubActivity;
@@ -35,7 +27,7 @@ export interface CollectorDependencies {
 export interface CollectOptions {
   manager: McpClientManager;
   window: CollectionWindow;
-  config: Config;
+  config: ValidatedConfig;
   serverConfigs: SourceServerConfigs;
   customConfigPath?: string;
   dependencies?: Partial<CollectorDependencies>;
@@ -64,12 +56,12 @@ interface CalendarState {
   attachmentFileIds: string[];
 }
 
-function resolveCustomUsername(config: Config): string {
-  if (config.githubUsername !== undefined) {
-    return config.githubUsername;
+function resolveCustomUsername(config: ValidatedConfig): string {
+  if (config.sources.github?.username !== undefined) {
+    return config.sources.github.username;
   }
-  if (config.jiraUsername !== undefined) {
-    return config.jiraUsername;
+  if (config.sources.jira?.username !== undefined) {
+    return config.sources.jira.username;
   }
   return "";
 }
@@ -83,10 +75,10 @@ function buildGithubTask(
     source: "github",
     task: (async () => {
       const serverConfig = serverConfigs.github;
-      const username = config.githubUsername;
+      const username = config.sources.github?.username;
       if (serverConfig === undefined || username === undefined) {
         throw new Error(
-          'GitHub source is enabled but requires "serverConfigs.github" and "config.githubUsername"',
+          'GitHub source is enabled but requires "serverConfigs.github" and "config.sources.github.username"',
         );
       }
       return deps.collectGithub({ manager, serverConfig, window, username });
@@ -103,15 +95,15 @@ function buildJiraTask(
     source: "jira",
     task: (async () => {
       const serverConfig = serverConfigs.jira;
-      const username = config.jiraUsername;
-      const baseUrl = config.jiraBaseUrl;
+      const username = config.sources.jira?.username;
+      const baseUrl = config.sources.jira?.baseUrl;
       if (
         serverConfig === undefined ||
         username === undefined ||
         baseUrl === undefined
       ) {
         throw new Error(
-          'Jira source is enabled but requires "serverConfigs.jira", "config.jiraUsername", and "config.jiraBaseUrl"',
+          'Jira source is enabled but requires "serverConfigs.jira", "config.sources.jira.username", and "config.sources.jira.baseUrl"',
         );
       }
       return deps.collectJira({
@@ -134,10 +126,10 @@ function buildConfluenceTask(
     source: "confluence",
     task: (async () => {
       const serverConfig = serverConfigs.confluence;
-      const baseUrl = config.confluenceBaseUrl;
+      const baseUrl = config.sources.confluence?.baseUrl;
       if (serverConfig === undefined || baseUrl === undefined) {
         throw new Error(
-          'Confluence source is enabled but requires "serverConfigs.confluence" and "config.confluenceBaseUrl"',
+          'Confluence source is enabled but requires "serverConfigs.confluence" and "config.sources.confluence.baseUrl"',
         );
       }
       return deps.collectConfluence({
@@ -202,19 +194,19 @@ function buildPhase1Tasks(
   deps: CollectorDependencies,
   calendarState: CalendarState,
 ): Phase1Task[] {
-  const enabled = new Set(options.config.enabledSources);
+  const { config } = options;
   const tasks: Phase1Task[] = [];
 
-  if (enabled.has("github")) {
+  if (config.sources.github?.enabled) {
     tasks.push(buildGithubTask(options, deps));
   }
-  if (enabled.has("jira")) {
+  if (config.sources.jira?.enabled) {
     tasks.push(buildJiraTask(options, deps));
   }
-  if (enabled.has("confluence")) {
+  if (config.sources.confluence?.enabled) {
     tasks.push(buildConfluenceTask(options, deps));
   }
-  if (enabled.has("calendar")) {
+  if (config.sources.calendar?.enabled) {
     tasks.push(buildCalendarTask(options, deps, calendarState));
   }
 
@@ -232,8 +224,7 @@ async function runPhase2Drive(
   results: SourceResult[],
   failures: string[],
 ): Promise<void> {
-  const enabled = new Set(options.config.enabledSources);
-  if (!enabled.has("drive")) {
+  if (!options.config.sources.drive?.enabled) {
     return;
   }
   try {

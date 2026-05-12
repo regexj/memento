@@ -1,17 +1,3 @@
-export interface Config {
-  llmProvider: string;
-  llmModel: string;
-  llmApiKey?: string;
-  githubUsername?: string;
-  jiraUsername?: string;
-  jiraBaseUrl?: string;
-  confluenceBaseUrl?: string;
-  enabledSources: string[];
-  reviewCycleMonth: number;
-  diaryDir: string;
-  logFile: string;
-}
-
 export interface CollectionWindow {
   from: Date;
   to: Date;
@@ -61,6 +47,14 @@ export interface McpServerConfig {
   env?: Record<string, string>;
   headers?: Record<string, string>;
   toolCalls: ToolCallConfig[];
+}
+
+export interface SourceServerConfigs {
+  github?: McpServerConfig;
+  jira?: McpServerConfig;
+  confluence?: McpServerConfig;
+  calendar?: McpServerConfig;
+  drive?: McpServerConfig;
 }
 
 export interface ToolCallConfig {
