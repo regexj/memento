@@ -148,8 +148,8 @@ diary/
 # Memento last-run marker
 .last-run
 
-# Memento MCP server config (contains credentials)
-memento.mcp.json
+# Memento config (contains credentials)
+memento.config.ts
 
 # Agent specs
 .kiro/specs
