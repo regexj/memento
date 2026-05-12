@@ -15,6 +15,22 @@ interface CollectCalendarOptions {
   window: CollectionWindow;
 }
 
+/**
+ * Describes the argument names the `get_events` tool expects for the
+ * time-range filter. Resolved at runtime by probing the tool's input schema.
+ */
+interface GetEventsArgNames {
+  calendarId: string;
+  startTime: string;
+  endTime: string;
+}
+
+const DEFAULT_ARG_NAMES: GetEventsArgNames = {
+  calendarId: "calendar_id",
+  startTime: "start_time",
+  endTime: "end_time",
+};
+
 function extractItemsFromStructured(
   structured: unknown,
   key: string,
@@ -76,171 +92,6 @@ function parseArrayToolResult(raw: unknown, key: string): unknown[] {
     return fromContent;
   }
   return [];
-}
-
-function extractObjectFromStructured(
-  structured: unknown,
-  key: string,
-): Record<string, unknown> | undefined {
-  if (!isRecord(structured)) {
-    return undefined;
-  }
-  const nested = structured[key];
-  if (isRecord(nested)) {
-    return nested;
-  }
-  return structured;
-}
-
-function extractObjectFromContent(
-  content: unknown,
-  key: string,
-): Record<string, unknown> | undefined {
-  if (!Array.isArray(content)) {
-    return undefined;
-  }
-  for (const entry of content) {
-    if (!isRecord(entry)) {
-      continue;
-    }
-    if (entry["type"] !== "text") {
-      continue;
-    }
-    const text = entry["text"];
-    if (typeof text !== "string") {
-      continue;
-    }
-    try {
-      const parsed: unknown = JSON.parse(text);
-      if (!isRecord(parsed)) {
-        return undefined;
-      }
-      const nested = parsed[key];
-      if (isRecord(nested)) {
-        return nested;
-      }
-      return parsed;
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
-}
-
-function parseObjectToolResult(
-  raw: unknown,
-  key: string,
-): Record<string, unknown> | undefined {
-  if (!isRecord(raw)) {
-    return undefined;
-  }
-  const structured = extractObjectFromStructured(raw["structuredContent"], key);
-  if (structured !== undefined) {
-    return structured;
-  }
-  return extractObjectFromContent(raw["content"], key);
-}
-
-async function listCalendarIds(
-  manager: McpClientManager,
-  client: Client,
-): Promise<string[]> {
-  try {
-    const raw = await manager.callTool(client, "list_calendars", {});
-    const calendars = parseArrayToolResult(raw, "calendars");
-    const ids: string[] = [];
-    for (const entry of calendars) {
-      if (!isRecord(entry)) {
-        continue;
-      }
-      const id = getString(entry["id"]);
-      if (id !== undefined) {
-        ids.push(id);
-      }
-    }
-    return ids;
-  } catch (error) {
-    logger.warn('Calendar tool "list_calendars" failed', errorMessage(error));
-    return [];
-  }
-}
-
-async function listEventsForCalendar(
-  manager: McpClientManager,
-  client: Client,
-  calendarId: string,
-  window: CollectionWindow,
-): Promise<Record<string, unknown>[]> {
-  try {
-    const raw = await manager.callTool(client, "list_events", {
-      calendarId,
-      timeMin: window.from.toISOString(),
-      timeMax: window.to.toISOString(),
-    });
-    const events = parseArrayToolResult(raw, "events");
-    const shaped: Record<string, unknown>[] = [];
-    for (const entry of events) {
-      if (isRecord(entry)) {
-        shaped.push(entry);
-      }
-    }
-    return shaped;
-  } catch (error) {
-    logger.warn(
-      `Calendar tool "list_events" failed for calendar "${calendarId}"`,
-      errorMessage(error),
-    );
-    return [];
-  }
-}
-
-function isSparseEvent(event: Record<string, unknown>): boolean {
-  return (
-    event["description"] === undefined &&
-    event["attendees"] === undefined &&
-    event["attachments"] === undefined
-  );
-}
-
-async function getEventDetail(
-  manager: McpClientManager,
-  client: Client,
-  calendarId: string,
-  eventId: string,
-): Promise<Record<string, unknown> | undefined> {
-  try {
-    const raw = await manager.callTool(client, "get_event", {
-      calendarId,
-      eventId,
-    });
-    return parseObjectToolResult(raw, "event");
-  } catch (error) {
-    logger.warn(
-      `Calendar tool "get_event" failed for event "${eventId}"`,
-      errorMessage(error),
-    );
-    return undefined;
-  }
-}
-
-async function enrichEvent(
-  manager: McpClientManager,
-  client: Client,
-  calendarId: string,
-  event: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  if (!isSparseEvent(event)) {
-    return event;
-  }
-  const id = getString(event["id"]);
-  if (id === undefined) {
-    return event;
-  }
-  const detail = await getEventDetail(manager, client, calendarId, id);
-  if (detail === undefined) {
-    return event;
-  }
-  return detail;
 }
 
 function formatAttendee(attendee: unknown): string | undefined {
@@ -354,6 +205,120 @@ function shapeEvent(event: Record<string, unknown>): {
   return { item, fileIds: extractAttachmentFileIds(event) };
 }
 
+async function listCalendarIds(
+  manager: McpClientManager,
+  client: Client,
+): Promise<string[]> {
+  try {
+    const raw = await manager.callTool(client, "list_calendars", {});
+    const calendars = parseArrayToolResult(raw, "calendars");
+    const ids: string[] = [];
+    for (const entry of calendars) {
+      if (!isRecord(entry)) {
+        continue;
+      }
+      const id = getString(entry["id"]);
+      if (id !== undefined) {
+        ids.push(id);
+      }
+    }
+    return ids;
+  } catch (error) {
+    logger.warn('Calendar tool "list_calendars" failed', errorMessage(error));
+    return [];
+  }
+}
+
+/**
+ * Probes the MCP server's advertised tool list to determine the argument names
+ * for the `get_events` tool. Falls back to workspace-mcp defaults if the tool
+ * schema cannot be read or does not contain recognizable property names.
+ */
+async function resolveGetEventsArgNames(
+  manager: McpClientManager,
+  client: Client,
+): Promise<GetEventsArgNames> {
+  try {
+    const tools = await manager.listTools(client);
+    const getEventsTool = tools.find((t) => t.name === "get_events");
+    if (getEventsTool === undefined) {
+      logger.warn(
+        'Could not find "get_events" in advertised tools, using default argument names',
+      );
+      return DEFAULT_ARG_NAMES;
+    }
+    const schema = getEventsTool.inputSchema;
+    const properties = schema["properties"];
+    if (!isRecord(properties)) {
+      return DEFAULT_ARG_NAMES;
+    }
+    const propNames = Object.keys(properties);
+
+    // Resolve calendarId argument name
+    const calendarId = propNames.includes("calendar_id")
+      ? "calendar_id"
+      : propNames.includes("calendarId")
+        ? "calendarId"
+        : DEFAULT_ARG_NAMES.calendarId;
+
+    // Resolve start time argument name
+    const startTime = propNames.includes("start_time")
+      ? "start_time"
+      : propNames.includes("start_date")
+        ? "start_date"
+        : propNames.includes("timeMin")
+          ? "timeMin"
+          : DEFAULT_ARG_NAMES.startTime;
+
+    // Resolve end time argument name
+    const endTime = propNames.includes("end_time")
+      ? "end_time"
+      : propNames.includes("end_date")
+        ? "end_date"
+        : propNames.includes("timeMax")
+          ? "timeMax"
+          : DEFAULT_ARG_NAMES.endTime;
+
+    return { calendarId, startTime, endTime };
+  } catch (error) {
+    logger.warn(
+      "Failed to probe get_events tool schema, using default argument names",
+      errorMessage(error),
+    );
+    return DEFAULT_ARG_NAMES;
+  }
+}
+
+async function getEventsForCalendar(
+  manager: McpClientManager,
+  client: Client,
+  calendarId: string,
+  window: CollectionWindow,
+  argNames: GetEventsArgNames,
+): Promise<Record<string, unknown>[]> {
+  try {
+    const raw = await manager.callTool(client, "get_events", {
+      [argNames.calendarId]: calendarId,
+      [argNames.startTime]: window.from.toISOString(),
+      [argNames.endTime]: window.to.toISOString(),
+    });
+    const events = parseArrayToolResult(raw, "events");
+    const shaped: Record<string, unknown>[] = [];
+    for (const entry of events) {
+      if (isRecord(entry)) {
+        shaped.push(entry);
+      }
+    }
+    return shaped;
+  } catch (error) {
+    logger.warn(
+      `Calendar tool "get_events" failed for calendar "${calendarId}"`,
+      errorMessage(error),
+    );
+    return [];
+  }
+}
+
 export async function collectCalendarActivity(
   options: CollectCalendarOptions,
 ): Promise<CalendarCollectionResult> {
@@ -370,17 +335,19 @@ export async function collectCalendarActivity(
     return { items: [], attachmentFileIds: [] };
   }
 
+  const argNames = await resolveGetEventsArgNames(manager, client);
   const calendarIds = await listCalendarIds(manager, client);
   const items: ActivityItem[] = [];
   const fileIdSet = new Set<string>();
   const seenEventIds = new Set<string>();
 
   for (const calendarId of calendarIds) {
-    const events = await listEventsForCalendar(
+    const events = await getEventsForCalendar(
       manager,
       client,
       calendarId,
       window,
+      argNames,
     );
     for (const event of events) {
       const id = getString(event["id"]);
@@ -390,8 +357,7 @@ export async function collectCalendarActivity(
         }
         seenEventIds.add(id);
       }
-      const enriched = await enrichEvent(manager, client, calendarId, event);
-      const { item, fileIds } = shapeEvent(enriched);
+      const { item, fileIds } = shapeEvent(event);
       if (item !== null) {
         items.push(item);
       }
