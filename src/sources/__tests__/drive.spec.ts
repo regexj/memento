@@ -251,6 +251,52 @@ describe("collectDriveActivity — happy path", () => {
     ]);
   });
 
+  it("deduplicates repeated fileIds within search_drive_files results", async () => {
+    const manager = makeManager();
+    manager.connect.mockResolvedValue(FAKE_CLIENT);
+    manager.callTool.mockImplementation((_client: Client, toolName: string) => {
+      if (toolName === "search_drive_files") {
+        return Promise.resolve(
+          textContent("files", [
+            {
+              id: "dup-file",
+              name: "First occurrence",
+              webViewLink: "https://docs.google.com/d/dup-file",
+              modifiedTime: "2025-06-05T00:00:00.000Z",
+            },
+            {
+              id: "dup-file",
+              name: "Second occurrence (duplicate)",
+              webViewLink: "https://docs.google.com/d/dup-file",
+              modifiedTime: "2025-06-05T00:00:00.000Z",
+            },
+            {
+              id: "unique-file",
+              name: "Unique",
+              webViewLink: "https://docs.google.com/d/unique-file",
+              modifiedTime: "2025-06-06T00:00:00.000Z",
+            },
+          ]),
+        );
+      }
+      return Promise.resolve({});
+    });
+
+    const result = await collectDriveActivity({
+      manager: asManager(manager),
+      serverConfig: SERVER_CONFIG,
+      window: WINDOW,
+    });
+
+    expect(result).toHaveLength(2);
+    expect(result.map((item) => item.fileId)).toEqual([
+      "dup-file",
+      "unique-file",
+    ]);
+    // First occurrence wins
+    expect(result[0]!.title).toBe("First occurrence");
+  });
+
   it("does not call get_drive_file_content when attachmentFileIds is omitted", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
