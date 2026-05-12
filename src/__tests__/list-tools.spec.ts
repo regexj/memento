@@ -278,7 +278,7 @@ describe("main", () => {
     expect(manager.disconnectAll).toHaveBeenCalledTimes(1);
 
     const written = stdoutSpy.mock.calls
-      .map((call) => call[0] as string)
+      .map((call: unknown[]) => call[0] as string)
       .join("");
     const antIndex = written.indexOf("• ant");
     const zooIndex = written.indexOf("• zoo");
@@ -302,7 +302,7 @@ describe("main", () => {
     await main();
 
     const written = stdoutSpy.mock.calls
-      .map((call) => call[0] as string)
+      .map((call: unknown[]) => call[0] as string)
       .join("");
     expect(written).toContain("(no tools exposed)");
     expect(process.exitCode).toBeUndefined();
@@ -344,7 +344,7 @@ describe("main", () => {
     await main();
 
     const written = stdoutSpy.mock.calls
-      .map((call) => call[0] as string)
+      .map((call: unknown[]) => call[0] as string)
       .join("");
     expect(written).toContain('"type": "object"');
     expect(written).toContain('"properties"');
@@ -374,7 +374,7 @@ describe("main", () => {
     await main();
 
     const written = stdoutSpy.mock.calls
-      .map((call) => call[0] as string)
+      .map((call: unknown[]) => call[0] as string)
       .join("");
     expect(written).toContain("Failed: auth failed");
     expect(written).toContain("• jira_search");
@@ -445,7 +445,7 @@ describe("main", () => {
       expect.objectContaining({ name: "atlassian" }),
     );
     const written = stdoutSpy.mock.calls
-      .map((call) => call[0] as string)
+      .map((call: unknown[]) => call[0] as string)
       .join("");
     expect(written).toContain("=== jira");
     expect(written).not.toContain("=== github");
@@ -485,7 +485,7 @@ describe("run", () => {
 
     expect(process.exitCode).toBe(1);
     const written = stdoutSpy.mock.calls
-      .map((call) => call[0] as string)
+      .map((call: unknown[]) => call[0] as string)
       .join("");
     expect(written).toContain("Error: config broken");
   });
@@ -501,7 +501,7 @@ describe("run", () => {
 
     expect(process.exitCode).toBe(1);
     const written = stdoutSpy.mock.calls
-      .map((call) => call[0] as string)
+      .map((call: unknown[]) => call[0] as string)
       .join("");
     expect(written).toContain("Error: raw failure");
   });
