@@ -12,7 +12,7 @@ function validConfig(overrides: Partial<MementoConfig> = {}): MementoConfig {
       apiKey: "sk-test",
     },
     sources: {
-      github: { username: "testuser" },
+      github: { enabled: true, server: "github", username: "testuser" },
     },
     mcpServers: {
       github: { command: "node", args: ["gh.js"] },
@@ -89,7 +89,7 @@ describe("validateConfig", () => {
   describe("source-specific validation", () => {
     it("exits when github source is missing username", () => {
       const cfg = validConfig({
-        sources: { github: { username: "" } },
+        sources: { github: { enabled: true, server: "github", username: "" } },
       });
       expect(() => validateConfig(cfg)).toThrow("process.exit called");
     });
@@ -97,7 +97,12 @@ describe("validateConfig", () => {
     it("exits when jira source is missing username", () => {
       const cfg = validConfig({
         sources: {
-          jira: { username: "", baseUrl: "https://x.atlassian.net" },
+          jira: {
+            enabled: true,
+            server: "atlassian",
+            username: "",
+            baseUrl: "https://x.atlassian.net",
+          },
         },
       });
       expect(() => validateConfig(cfg)).toThrow("process.exit called");
@@ -105,14 +110,23 @@ describe("validateConfig", () => {
 
     it("exits when jira source is missing baseUrl", () => {
       const cfg = validConfig({
-        sources: { jira: { username: "user", baseUrl: "" } },
+        sources: {
+          jira: {
+            enabled: true,
+            server: "atlassian",
+            username: "user",
+            baseUrl: "",
+          },
+        },
       });
       expect(() => validateConfig(cfg)).toThrow("process.exit called");
     });
 
     it("exits when confluence source is missing baseUrl", () => {
       const cfg = validConfig({
-        sources: { confluence: { baseUrl: "" } },
+        sources: {
+          confluence: { enabled: true, server: "atlassian", baseUrl: "" },
+        },
       });
       expect(() => validateConfig(cfg)).toThrow("process.exit called");
     });
@@ -128,9 +142,9 @@ describe("validateConfig", () => {
   describe("Google OAuth validation for calendar/drive", () => {
     it("exits when calendar is enabled but server has no GOOGLE_OAUTH_CLIENT_ID", () => {
       const cfg = validConfig({
-        sources: { calendar: {} },
+        sources: { calendar: { enabled: true, server: "google" } },
         mcpServers: {
-          calendar: {
+          google: {
             command: "uvx",
             args: ["workspace-mcp"],
             env: { GOOGLE_OAUTH_CLIENT_SECRET: "secret" },
@@ -142,9 +156,9 @@ describe("validateConfig", () => {
 
     it("exits when calendar is enabled but server has no GOOGLE_OAUTH_CLIENT_SECRET", () => {
       const cfg = validConfig({
-        sources: { calendar: {} },
+        sources: { calendar: { enabled: true, server: "google" } },
         mcpServers: {
-          calendar: {
+          google: {
             command: "uvx",
             args: ["workspace-mcp"],
             env: { GOOGLE_OAUTH_CLIENT_ID: "id" },
@@ -156,17 +170,20 @@ describe("validateConfig", () => {
 
     it("exits when drive is enabled but mapped server is missing OAuth env", () => {
       const cfg = validConfig({
-        sources: { drive: {} },
+        sources: { drive: { enabled: true, server: "google" } },
         mcpServers: {
-          drive: { command: "uvx", args: ["workspace-mcp"], env: {} },
+          google: { command: "uvx", args: ["workspace-mcp"], env: {} },
         },
       });
       expect(() => validateConfig(cfg)).toThrow("process.exit called");
     });
 
-    it("uses sourceServerMap to resolve the server for calendar/drive", () => {
+    it("resolves the server from source.server for calendar/drive", () => {
       const cfg = validConfig({
-        sources: { calendar: {}, drive: {} },
+        sources: {
+          calendar: { enabled: true, server: "google" },
+          drive: { enabled: true, server: "google" },
+        },
         mcpServers: {
           google: {
             command: "uvx",
@@ -177,27 +194,25 @@ describe("validateConfig", () => {
             },
           },
         },
-        sourceServerMap: { calendar: "google", drive: "google" },
       });
       const result = validateConfig(cfg);
       expect(result.sources.calendar).toBeDefined();
       expect(result.sources.drive).toBeDefined();
     });
 
-    it("exits when sourceServerMap points to a non-existent server", () => {
+    it("exits when source.server points to a non-existent server", () => {
       const cfg = validConfig({
-        sources: { calendar: {} },
+        sources: { calendar: { enabled: true, server: "nonexistent" } },
         mcpServers: {},
-        sourceServerMap: { calendar: "nonexistent" },
       });
       expect(() => validateConfig(cfg)).toThrow("process.exit called");
     });
 
     it("skips OAuth check for HTTP-based servers", () => {
       const cfg = validConfig({
-        sources: { calendar: {} },
+        sources: { calendar: { enabled: true, server: "google" } },
         mcpServers: {
-          calendar: {
+          google: {
             url: "https://google-mcp.example.com",
             headers: { Authorization: "Bearer token" },
           },
@@ -205,6 +220,15 @@ describe("validateConfig", () => {
       });
       const result = validateConfig(cfg);
       expect(result.sources.calendar).toBeDefined();
+    });
+
+    it("skips OAuth check when calendar is present but disabled", () => {
+      const cfg = validConfig({
+        sources: { calendar: { enabled: false, server: "google" } },
+        mcpServers: {},
+      });
+      const result = validateConfig(cfg);
+      expect(result.sources.calendar?.enabled).toBe(false);
     });
   });
 
@@ -328,18 +352,23 @@ describe("validateConfig", () => {
           apiKey: "sk-test",
         },
         sources: {
-          github: { username: "testuser" },
+          github: { enabled: true, server: "github", username: "testuser" },
           jira: {
+            enabled: true,
+            server: "atlassian",
             username: "jirauser",
             baseUrl: "https://test.atlassian.net",
           },
-          confluence: { baseUrl: "https://test.atlassian.net/wiki" },
+          confluence: {
+            enabled: true,
+            server: "atlassian",
+            baseUrl: "https://test.atlassian.net/wiki",
+          },
         },
         mcpServers: {
           github: { command: "node", args: ["gh.js"] },
           atlassian: { command: "uvx", args: ["mcp-atlassian"] },
         },
-        sourceServerMap: { jira: "atlassian", confluence: "atlassian" },
         reviewCycleMonth: 6,
       };
 
@@ -347,12 +376,9 @@ describe("validateConfig", () => {
       expect(result.llm.provider).toBe("anthropic");
       expect(result.llm.model).toBe("claude-sonnet-4-20250514");
       expect(result.sources.github?.username).toBe("testuser");
-      expect(result.sources.jira?.baseUrl).toBe("https://test.atlassian.net");
+      expect(result.sources.jira?.enabled).toBe(true);
+      expect(result.sources.jira?.server).toBe("atlassian");
       expect(result.reviewCycleMonth).toBe(6);
-      expect(result.sourceServerMap).toEqual({
-        jira: "atlassian",
-        confluence: "atlassian",
-      });
     });
   });
 });

@@ -233,7 +233,6 @@ describe("collectConfluenceActivity — connection failures", () => {
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
-
       baseUrl: BASE_URL,
     });
 

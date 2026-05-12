@@ -54,27 +54,39 @@ const LlmConfigSchema = z
   });
 
 const GitHubSourceSchema = z.object({
+  enabled: z.boolean(),
+  server: z.string().min(1, "config.sources.github.server must not be empty"),
   username: z
     .string()
     .min(1, "config.sources.github.username must not be empty"),
 });
 
 const JiraSourceSchema = z.object({
+  enabled: z.boolean(),
+  server: z.string().min(1, "config.sources.jira.server must not be empty"),
   username: z.string().min(1, "config.sources.jira.username must not be empty"),
   baseUrl: z.string().min(1, "config.sources.jira.baseUrl must not be empty"),
 });
 
 const ConfluenceSourceSchema = z.object({
+  enabled: z.boolean(),
+  server: z
+    .string()
+    .min(1, "config.sources.confluence.server must not be empty"),
   baseUrl: z
     .string()
     .min(1, "config.sources.confluence.baseUrl must not be empty"),
 });
 
 const CalendarSourceSchema = z.object({
+  enabled: z.boolean(),
+  server: z.string().min(1, "config.sources.calendar.server must not be empty"),
   calendarIds: z.array(z.string()).optional(),
 });
 
 const DriveSourceSchema = z.object({
+  enabled: z.boolean(),
+  server: z.string().min(1, "config.sources.drive.server must not be empty"),
   userEmail: z.string().optional(),
 });
 
@@ -86,34 +98,23 @@ const SourcesConfigSchema = z.object({
   drive: DriveSourceSchema.optional(),
 });
 
-const SourceServerMapSchema = z
-  .object({
-    github: z.string().optional(),
-    jira: z.string().optional(),
-    confluence: z.string().optional(),
-    calendar: z.string().optional(),
-    drive: z.string().optional(),
-  })
-  .optional();
-
 const MementoConfigSchema = z
   .object({
     llm: LlmConfigSchema,
     sources: SourcesConfigSchema,
     mcpServers: z.record(z.string(), McpServerEntrySchema),
-    sourceServerMap: SourceServerMapSchema,
     reviewCycleMonth: z.number().int().min(1).max(12).default(1),
     customServers: z.array(CustomServerEntrySchema).optional(),
   })
   .superRefine((data, ctx) => {
     const googleSources: Array<"calendar" | "drive"> = [];
-    if (data.sources.calendar !== undefined) googleSources.push("calendar");
-    if (data.sources.drive !== undefined) googleSources.push("drive");
+    if (data.sources.calendar?.enabled) googleSources.push("calendar");
+    if (data.sources.drive?.enabled) googleSources.push("drive");
 
     if (googleSources.length === 0) return;
 
     for (const source of googleSources) {
-      const serverKey = data.sourceServerMap?.[source] ?? source;
+      const serverKey = data.sources[source]!.server;
       const serverEntry = data.mcpServers[serverKey];
 
       if (serverEntry === undefined) {

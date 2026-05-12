@@ -26,24 +26,42 @@ export interface LlmConfig {
 // --- Source Settings ---
 
 export interface GitHubSourceSettings {
+  enabled: boolean;
+  /** Key in `mcpServers` that this source connects through. */
+  server: string;
   username: string;
 }
 
 export interface JiraSourceSettings {
+  enabled: boolean;
+  /** Key in `mcpServers` that this source connects through. */
+  server: string;
+  /** Jira username/email used in JQL queries (e.g. assignee = "username"). */
   username: string;
+  /** Jira instance base URL (e.g. "https://myorg.atlassian.net"). */
   baseUrl: string;
 }
 
 export interface ConfluenceSourceSettings {
+  enabled: boolean;
+  /** Key in `mcpServers` that this source connects through. */
+  server: string;
+  /** Confluence instance base URL (e.g. "https://myorg.atlassian.net/wiki"). */
   baseUrl: string;
 }
 
 export interface CalendarSourceSettings {
+  enabled: boolean;
+  /** Key in `mcpServers` that this source connects through. */
+  server: string;
   /** Optional list of calendar IDs to include. Defaults to all calendars. */
   calendarIds?: string[];
 }
 
 export interface DriveSourceSettings {
+  enabled: boolean;
+  /** Key in `mcpServers` that this source connects through. */
+  server: string;
   /** Optional user email used for ownership/writer filtering in Drive queries. */
   userEmail?: string;
 }
@@ -88,21 +106,15 @@ export interface CustomServerEntry {
   toolCalls: CustomToolCall[];
 }
 
-// --- Source-to-Server Map ---
-
-export type SourceServerMap = Partial<Record<keyof SourcesConfig, string>>;
-
 // --- Top-Level Config ---
 
 export interface MementoConfig {
   /** LLM provider and model configuration. */
   llm: LlmConfig;
-  /** Enabled data sources and their per-source settings. A source is enabled by being present. */
+  /** Data source settings. Each source has `enabled` and `server` fields. */
   sources: SourcesConfig;
   /** MCP server definitions keyed by server name. */
   mcpServers: Record<string, McpServerEntry>;
-  /** Maps each source name to its MCP server key. Defaults to source name as key when omitted. */
-  sourceServerMap?: SourceServerMap;
   /** Starting month (1-12) of the annual review cycle. Defaults to 1 (January). */
   reviewCycleMonth?: number;
   /** Additional MCP servers with pre-configured tool calls for data collection. */
