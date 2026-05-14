@@ -178,7 +178,7 @@ describe("collectCalendarActivity — happy path", () => {
       window: WINDOW,
     });
 
-    expect(result.items).toHaveLength(1);
+    expect(result.items).toHaveLength(2);
     expect(result.items[0]?.title).toBe("Shared Meeting");
   });
 

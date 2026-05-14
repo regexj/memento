@@ -74,7 +74,7 @@ function parseCalendarIdsFromText(text: string): string[] {
 function parseEventsFromText(text: string): ActivityItem[] {
   const items: ActivityItem[] = [];
   const eventRegex =
-    /- "([^"]+)" \(Starts: ([^,]+), Ends: ([^)]+)\) ID: ([^\s|]+)(?: \| Link: (\S+))?/g;
+    /- "([^"]+)" \(Starts: ([^,]+), Ends: ([^)]+)\)(?:\s+Meeting: \S+)? ID: ([^\s|]+)(?:\s+\| Link: (\S+))?/g;
   let match: RegExpExecArray | null;
   while ((match = eventRegex.exec(text)) !== null) {
     const title = match[1];
@@ -166,7 +166,6 @@ export async function collectCalendarActivity(
   }
 
   const items: ActivityItem[] = [];
-  const seenTitles = new Set<string>();
 
   for (const calendarId of calendarIds) {
     const events = await getEventsForCalendar(
@@ -175,15 +174,7 @@ export async function collectCalendarActivity(
       calendarId,
       window,
     );
-    for (const event of events) {
-      // Deduplicate events that appear in multiple calendars
-      const key = `${event.title}|${event.url ?? ""}`;
-      if (seenTitles.has(key)) {
-        continue;
-      }
-      seenTitles.add(key);
-      items.push(event);
-    }
+    items.push(...events);
   }
 
   logger.info(`Collected ${items.length} Calendar activity item(s)`);
