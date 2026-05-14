@@ -58,20 +58,11 @@ export interface CalendarSourceSettings {
   calendarIds?: string[];
 }
 
-export interface DriveSourceSettings {
-  enabled: boolean;
-  /** Key in `mcpServers` that this source connects through. */
-  server: string;
-  /** Optional user email used for ownership/writer filtering in Drive queries. */
-  userEmail?: string;
-}
-
 export interface SourcesConfig {
   github?: GitHubSourceSettings;
   jira?: JiraSourceSettings;
   confluence?: ConfluenceSourceSettings;
   calendar?: CalendarSourceSettings;
-  drive?: DriveSourceSettings;
 }
 
 // --- MCP Server Definitions ---

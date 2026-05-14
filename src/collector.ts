@@ -139,7 +139,7 @@ function buildCalendarTask(
   options: CollectOptions,
   deps: CollectorDependencies,
 ): Phase1Task {
-  const { manager, window, serverConfigs } = options;
+  const { manager, window, config, serverConfigs } = options;
   return {
     source: "calendar",
     task: (async () => {
@@ -153,6 +153,7 @@ function buildCalendarTask(
         manager,
         serverConfig,
         window,
+        calendarIds: config.sources.calendar?.calendarIds,
       });
       return result.items;
     })(),

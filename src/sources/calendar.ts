@@ -13,132 +13,86 @@ interface CollectCalendarOptions {
   manager: McpClientManager;
   serverConfig: McpServerConfig;
   window: CollectionWindow;
+  calendarIds?: string[];
 }
 
-function extractItemsFromStructured(
-  structured: unknown,
-  key: string,
-): unknown[] | undefined {
-  if (!isRecord(structured)) {
-    return undefined;
-  }
-  const items = structured[key];
-  if (Array.isArray(items)) {
-    return items;
-  }
-  return undefined;
-}
-
-function extractItemsFromContent(
-  content: unknown,
-  key: string,
-): unknown[] | undefined {
-  if (!Array.isArray(content)) {
-    return undefined;
-  }
-  for (const entry of content) {
-    if (!isRecord(entry)) {
-      continue;
-    }
-    if (entry["type"] !== "text") {
-      continue;
-    }
-    const text = entry["text"];
-    if (typeof text !== "string") {
-      continue;
-    }
-    try {
-      const parsed: unknown = JSON.parse(text);
-      if (Array.isArray(parsed)) {
-        return parsed;
-      }
-      if (isRecord(parsed) && Array.isArray(parsed[key])) {
-        return parsed[key] as unknown[];
-      }
-      return undefined;
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
-}
-
-function parseArrayToolResult(raw: unknown, key: string): unknown[] {
-  if (!isRecord(raw)) {
-    return [];
-  }
-  const structured = extractItemsFromStructured(raw["structuredContent"], key);
-  if (structured !== undefined) {
-    return structured;
-  }
-  const fromContent = extractItemsFromContent(raw["content"], key);
-  if (fromContent !== undefined) {
-    return fromContent;
-  }
-  return [];
-}
-
-function extractObjectFromStructured(
-  structured: unknown,
-  key: string,
-): Record<string, unknown> | undefined {
-  if (!isRecord(structured)) {
-    return undefined;
-  }
-  const nested = structured[key];
-  if (isRecord(nested)) {
-    return nested;
-  }
-  return structured;
-}
-
-function extractObjectFromContent(
-  content: unknown,
-  key: string,
-): Record<string, unknown> | undefined {
-  if (!Array.isArray(content)) {
-    return undefined;
-  }
-  for (const entry of content) {
-    if (!isRecord(entry)) {
-      continue;
-    }
-    if (entry["type"] !== "text") {
-      continue;
-    }
-    const text = entry["text"];
-    if (typeof text !== "string") {
-      continue;
-    }
-    try {
-      const parsed: unknown = JSON.parse(text);
-      if (!isRecord(parsed)) {
-        return undefined;
-      }
-      const nested = parsed[key];
-      if (isRecord(nested)) {
-        return nested;
-      }
-      return parsed;
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
-}
-
-function parseObjectToolResult(
-  raw: unknown,
-  key: string,
-): Record<string, unknown> | undefined {
+/**
+ * Extracts the text content from a workspace-mcp tool response.
+ * Checks structuredContent.result first, then content[].text.
+ */
+function extractTextFromResponse(raw: unknown): string | undefined {
   if (!isRecord(raw)) {
     return undefined;
   }
-  const structured = extractObjectFromStructured(raw["structuredContent"], key);
-  if (structured !== undefined) {
-    return structured;
+
+  const structured = raw["structuredContent"];
+  if (isRecord(structured)) {
+    const result = getString(structured["result"]);
+    if (result !== undefined) {
+      return result;
+    }
   }
-  return extractObjectFromContent(raw["content"], key);
+
+  const content = raw["content"];
+  if (Array.isArray(content)) {
+    for (const entry of content) {
+      if (!isRecord(entry)) continue;
+      if (entry["type"] !== "text") continue;
+      const text = getString(entry["text"]);
+      if (text !== undefined) {
+        return text;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Parses calendar IDs from workspace-mcp's list_calendars text response.
+ * Format: - "Calendar Name" (ID: calendar-id)
+ */
+function parseCalendarIdsFromText(text: string): string[] {
+  const ids: string[] = [];
+  const regex = /\(ID:\s*([^)]+)\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    /* v8 ignore start — regex guarantees non-empty capture */
+    const id = match[1]?.trim();
+    if (id !== undefined && id.length > 0) {
+      ids.push(id);
+    }
+    /* v8 ignore stop */
+  }
+  return ids;
+}
+
+/**
+ * Parses events from workspace-mcp's get_events text response.
+ * Format: - "Event Title" (Starts: ..., Ends: ...) ID: event-id | Link: url
+ */
+function parseEventsFromText(text: string): ActivityItem[] {
+  const items: ActivityItem[] = [];
+  const eventRegex =
+    /- "([^"]+)" \(Starts: ([^,]+), Ends: ([^)]+)\) ID: ([^\s|]+)(?: \| Link: (\S+))?/g;
+  let match: RegExpExecArray | null;
+  while ((match = eventRegex.exec(text)) !== null) {
+    const title = match[1];
+    const url = match[5];
+    /* v8 ignore start — regex guarantees title capture */
+    if (title === undefined) continue;
+    /* v8 ignore stop */
+
+    const item: ActivityItem = {
+      type: "calendar_event",
+      title,
+    };
+    if (url !== undefined && url.length > 0) {
+      item.url = url;
+    }
+    items.push(item);
+  }
+  return items;
 }
 
 async function listCalendarIds(
@@ -147,217 +101,48 @@ async function listCalendarIds(
 ): Promise<string[]> {
   try {
     const raw = await manager.callTool(client, "list_calendars", {});
-    const calendars = parseArrayToolResult(raw, "calendars");
-    const ids: string[] = [];
-    for (const entry of calendars) {
-      if (!isRecord(entry)) {
-        continue;
-      }
-      const id = getString(entry["id"]);
-      if (id !== undefined) {
-        ids.push(id);
-      }
+    const text = extractTextFromResponse(raw);
+    if (text === undefined) {
+      logger.warn('Calendar tool "list_calendars" returned no parseable text');
+      return [];
     }
-    return ids;
+    return parseCalendarIdsFromText(text);
   } catch (error) {
     logger.warn('Calendar tool "list_calendars" failed', errorMessage(error));
     return [];
   }
 }
 
-async function listEventsForCalendar(
+async function getEventsForCalendar(
   manager: McpClientManager,
   client: Client,
   calendarId: string,
   window: CollectionWindow,
-): Promise<Record<string, unknown>[]> {
+): Promise<ActivityItem[]> {
   try {
-    const raw = await manager.callTool(client, "list_events", {
-      calendarId,
-      timeMin: window.from.toISOString(),
-      timeMax: window.to.toISOString(),
+    const raw = await manager.callTool(client, "get_events", {
+      calendar_id: calendarId,
+      time_min: window.from.toISOString(),
+      time_max: window.to.toISOString(),
     });
-    const events = parseArrayToolResult(raw, "events");
-    const shaped: Record<string, unknown>[] = [];
-    for (const entry of events) {
-      if (isRecord(entry)) {
-        shaped.push(entry);
-      }
+    const text = extractTextFromResponse(raw);
+    if (text === undefined) {
+      return [];
     }
-    return shaped;
+    return parseEventsFromText(text);
   } catch (error) {
     logger.warn(
-      `Calendar tool "list_events" failed for calendar "${calendarId}"`,
+      `Calendar tool "get_events" failed for calendar "${calendarId}"`,
       errorMessage(error),
     );
     return [];
   }
-}
-
-function isSparseEvent(event: Record<string, unknown>): boolean {
-  return (
-    event["description"] === undefined &&
-    event["attendees"] === undefined &&
-    event["attachments"] === undefined
-  );
-}
-
-async function getEventDetail(
-  manager: McpClientManager,
-  client: Client,
-  calendarId: string,
-  eventId: string,
-): Promise<Record<string, unknown> | undefined> {
-  try {
-    const raw = await manager.callTool(client, "get_event", {
-      calendarId,
-      eventId,
-    });
-    return parseObjectToolResult(raw, "event");
-  } catch (error) {
-    logger.warn(
-      `Calendar tool "get_event" failed for event "${eventId}"`,
-      errorMessage(error),
-    );
-    return undefined;
-  }
-}
-
-async function enrichEvent(
-  manager: McpClientManager,
-  client: Client,
-  calendarId: string,
-  event: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  if (!isSparseEvent(event)) {
-    return event;
-  }
-  const id = getString(event["id"]);
-  if (id === undefined) {
-    return event;
-  }
-  const detail = await getEventDetail(manager, client, calendarId, id);
-  if (detail === undefined) {
-    return event;
-  }
-  return detail;
-}
-
-function formatAttendee(attendee: unknown): string | undefined {
-  if (!isRecord(attendee)) {
-    return undefined;
-  }
-  const email = getString(attendee["email"]);
-  const displayName = getString(attendee["displayName"]);
-  if (displayName !== undefined && email !== undefined) {
-    return `${displayName} <${email}>`;
-  }
-  if (displayName !== undefined) {
-    return displayName;
-  }
-  if (email !== undefined) {
-    return email;
-  }
-  return undefined;
-}
-
-function extractAttendees(
-  event: Record<string, unknown>,
-): string[] | undefined {
-  const attendees = event["attendees"];
-  if (!Array.isArray(attendees)) {
-    return undefined;
-  }
-  const formatted: string[] = [];
-  for (const entry of attendees) {
-    const value = formatAttendee(entry);
-    if (value !== undefined) {
-      formatted.push(value);
-    }
-  }
-  return formatted.length > 0 ? formatted : undefined;
-}
-
-function extractConferenceUrl(
-  event: Record<string, unknown>,
-): string | undefined {
-  const conferenceData = event["conferenceData"];
-  if (!isRecord(conferenceData)) {
-    return undefined;
-  }
-  const entryPoints = conferenceData["entryPoints"];
-  if (!Array.isArray(entryPoints)) {
-    return undefined;
-  }
-  let fallback: string | undefined;
-  for (const point of entryPoints) {
-    if (!isRecord(point)) {
-      continue;
-    }
-    const uri = getString(point["uri"]);
-    if (uri === undefined) {
-      continue;
-    }
-    if (point["entryPointType"] === "video") {
-      return uri;
-    }
-    if (fallback === undefined) {
-      fallback = uri;
-    }
-  }
-  return fallback;
-}
-
-function extractAttachmentFileIds(event: Record<string, unknown>): string[] {
-  const attachments = event["attachments"];
-  if (!Array.isArray(attachments)) {
-    return [];
-  }
-  const ids: string[] = [];
-  for (const attachment of attachments) {
-    if (!isRecord(attachment)) {
-      continue;
-    }
-    const fileId = getString(attachment["fileId"]);
-    if (fileId !== undefined) {
-      ids.push(fileId);
-    }
-  }
-  return ids;
-}
-
-function shapeEvent(event: Record<string, unknown>): {
-  item: ActivityItem | null;
-  fileIds: string[];
-} {
-  const summary = getString(event["summary"]);
-  if (summary === undefined) {
-    return { item: null, fileIds: [] };
-  }
-  const item: ActivityItem = { type: "calendar_event", title: summary };
-  const url = getString(event["htmlLink"]);
-  if (url !== undefined) {
-    item.url = url;
-  }
-  const description = getString(event["description"]);
-  if (description !== undefined) {
-    item.description = description;
-  }
-  const attendees = extractAttendees(event);
-  if (attendees !== undefined) {
-    item.eventAttendees = attendees;
-  }
-  const conferenceUrl = extractConferenceUrl(event);
-  if (conferenceUrl !== undefined) {
-    item.conferenceUrl = conferenceUrl;
-  }
-  return { item, fileIds: extractAttachmentFileIds(event) };
 }
 
 export async function collectCalendarActivity(
   options: CollectCalendarOptions,
 ): Promise<CalendarCollectionResult> {
-  const { manager, serverConfig, window } = options;
+  const { manager, serverConfig, window, calendarIds: filterIds } = options;
 
   let client: Client;
   try {
@@ -370,37 +155,37 @@ export async function collectCalendarActivity(
     return { items: [], attachmentFileIds: [] };
   }
 
-  const calendarIds = await listCalendarIds(manager, client);
+  // Use configured calendar IDs if provided, otherwise discover all
+  let calendarIds: string[];
+  if (filterIds !== undefined && filterIds.length > 0) {
+    calendarIds = filterIds;
+    logger.info(`Using ${calendarIds.length} configured calendar ID(s)`);
+  } else {
+    calendarIds = await listCalendarIds(manager, client);
+    logger.info(`Discovered ${calendarIds.length} calendar(s)`);
+  }
+
   const items: ActivityItem[] = [];
-  const fileIdSet = new Set<string>();
-  const seenEventIds = new Set<string>();
+  const seenTitles = new Set<string>();
 
   for (const calendarId of calendarIds) {
-    const events = await listEventsForCalendar(
+    const events = await getEventsForCalendar(
       manager,
       client,
       calendarId,
       window,
     );
     for (const event of events) {
-      const id = getString(event["id"]);
-      if (id !== undefined) {
-        if (seenEventIds.has(id)) {
-          continue;
-        }
-        seenEventIds.add(id);
+      // Deduplicate events that appear in multiple calendars
+      const key = `${event.title}|${event.url ?? ""}`;
+      if (seenTitles.has(key)) {
+        continue;
       }
-      const enriched = await enrichEvent(manager, client, calendarId, event);
-      const { item, fileIds } = shapeEvent(enriched);
-      if (item !== null) {
-        items.push(item);
-      }
-      for (const fileId of fileIds) {
-        fileIdSet.add(fileId);
-      }
+      seenTitles.add(key);
+      items.push(event);
     }
   }
 
   logger.info(`Collected ${items.length} Calendar activity item(s)`);
-  return { items, attachmentFileIds: [...fileIdSet] };
+  return { items, attachmentFileIds: [] };
 }
