@@ -1,6 +1,5 @@
 import { logger } from "../../logger.ts";
 import type { McpClientManager } from "../../mcp.ts";
-import type { McpToolInfo } from "../../mcp.ts";
 import type { CollectionWindow, McpServerConfig } from "../../types.ts";
 import { collectCalendarActivity } from "../calendar.ts";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -11,7 +10,6 @@ vi.mock("../../logger.ts");
 interface MockManager {
   connect: ReturnType<typeof vi.fn>;
   callTool: ReturnType<typeof vi.fn>;
-  listTools: ReturnType<typeof vi.fn>;
   disconnectAll: ReturnType<typeof vi.fn>;
 }
 
@@ -19,18 +17,6 @@ function makeManager(): MockManager {
   return {
     connect: vi.fn(),
     callTool: vi.fn(),
-    listTools: vi.fn().mockResolvedValue([
-      {
-        name: "get_events",
-        inputSchema: {
-          properties: {
-            calendar_id: { type: "string" },
-            start_time: { type: "string" },
-            end_time: { type: "string" },
-          },
-        },
-      },
-    ]),
     disconnectAll: vi.fn(),
   };
 }
@@ -45,6 +31,15 @@ function textContent(
 ): { content: { type: "text"; text: string }[] } {
   return {
     content: [{ type: "text", text: JSON.stringify({ [key]: items }) }],
+  };
+}
+
+function textObject(
+  key: string,
+  value: unknown,
+): { content: { type: "text"; text: string }[] } {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ [key]: value }) }],
   };
 }
 
@@ -66,7 +61,7 @@ describe("collectCalendarActivity — happy path", () => {
     vi.clearAllMocks();
   });
 
-  it("lists calendars, fetches events per calendar via get_events, shapes items, and aggregates attachment fileIds", async () => {
+  it("lists calendars, fetches events per calendar, shapes items, and aggregates attachment fileIds", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation(
@@ -79,8 +74,8 @@ describe("collectCalendarActivity — happy path", () => {
             ]),
           );
         }
-        if (toolName === "get_events") {
-          const calendarId = args["calendar_id"];
+        if (toolName === "list_events") {
+          const calendarId = args["calendarId"];
           if (calendarId === "primary") {
             return Promise.resolve(
               textContent("events", [
@@ -145,23 +140,22 @@ describe("collectCalendarActivity — happy path", () => {
     expect(calls[0]).toEqual([FAKE_CLIENT, "list_calendars", {}]);
     expect(calls[1]).toEqual([
       FAKE_CLIENT,
-      "get_events",
+      "list_events",
       {
-        calendar_id: "primary",
-        start_time: "2025-06-01T00:00:00.000Z",
-        end_time: "2025-06-08T00:00:00.000Z",
+        calendarId: "primary",
+        timeMin: "2025-06-01T00:00:00.000Z",
+        timeMax: "2025-06-08T00:00:00.000Z",
       },
     ]);
     expect(calls[2]).toEqual([
       FAKE_CLIENT,
-      "get_events",
+      "list_events",
       {
-        calendar_id: "team@example.com",
-        start_time: "2025-06-01T00:00:00.000Z",
-        end_time: "2025-06-08T00:00:00.000Z",
+        calendarId: "team@example.com",
+        timeMin: "2025-06-01T00:00:00.000Z",
+        timeMax: "2025-06-08T00:00:00.000Z",
       },
     ]);
-    // list_calendars + 2x get_events = 3 tool calls
     expect(manager.callTool).toHaveBeenCalledTimes(3);
 
     expect(result.items).toEqual([
@@ -191,14 +185,63 @@ describe("collectCalendarActivity — happy path", () => {
     );
   });
 
-  it("does not call get_event — workspace-mcp get_events returns rich events in one pass", async () => {
+  it("enriches sparse events via get_event when description/attendees/attachments are all missing", async () => {
+    const manager = makeManager();
+    manager.connect.mockResolvedValue(FAKE_CLIENT);
+    manager.callTool.mockImplementation(
+      (_client: Client, toolName: string, args: Record<string, unknown>) => {
+        if (toolName === "list_calendars") {
+          return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
+        }
+        if (toolName === "list_events") {
+          return Promise.resolve(
+            textContent("events", [{ id: "evt-sparse", summary: "Sparse" }]),
+          );
+        }
+        if (toolName === "get_event") {
+          expect(args).toEqual({
+            calendarId: "primary",
+            eventId: "evt-sparse",
+          });
+          return Promise.resolve(
+            textObject("event", {
+              id: "evt-sparse",
+              summary: "Enriched title",
+              description: "Detailed description",
+              attendees: [{ email: "x@example.com" }],
+              attachments: [{ fileId: "enriched-file" }],
+            }),
+          );
+        }
+        return Promise.resolve({});
+      },
+    );
+
+    const result = await collectCalendarActivity({
+      manager: asManager(manager),
+      serverConfig: SERVER_CONFIG,
+      window: WINDOW,
+    });
+
+    expect(result.items).toEqual([
+      {
+        type: "calendar_event",
+        title: "Enriched title",
+        description: "Detailed description",
+        eventAttendees: ["x@example.com"],
+      },
+    ]);
+    expect(result.attachmentFileIds).toEqual(["enriched-file"]);
+  });
+
+  it("does not call get_event when the event already contains description/attendees/attachments", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation((_client: Client, toolName: string) => {
       if (toolName === "list_calendars") {
         return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
       }
-      if (toolName === "get_events") {
+      if (toolName === "list_events") {
         return Promise.resolve(
           textContent("events", [
             {
@@ -210,7 +253,7 @@ describe("collectCalendarActivity — happy path", () => {
         );
       }
       if (toolName === "get_event") {
-        throw new Error("should not be called — get_events returns rich data");
+        throw new Error("should not be called");
       }
       return Promise.resolve({});
     });
@@ -235,7 +278,7 @@ describe("collectCalendarActivity — happy path", () => {
           textContent("calendars", [{ id: "primary" }, { id: "shared" }]),
         );
       }
-      if (toolName === "get_events") {
+      if (toolName === "list_events") {
         return Promise.resolve(
           textContent("events", [
             {
@@ -257,236 +300,6 @@ describe("collectCalendarActivity — happy path", () => {
 
     expect(result.items).toHaveLength(1);
     expect(result.items[0]?.title).toBe("Shared meeting");
-  });
-});
-
-describe("collectCalendarActivity — schema probing", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("uses default arg names (calendar_id, start_time, end_time) when schema confirms them", async () => {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.listTools.mockResolvedValue([
-      {
-        name: "get_events",
-        inputSchema: {
-          properties: {
-            calendar_id: { type: "string" },
-            start_time: { type: "string" },
-            end_time: { type: "string" },
-          },
-        },
-      },
-    ] as McpToolInfo[]);
-    manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "list_calendars") {
-        return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
-      }
-      if (toolName === "get_events") {
-        return Promise.resolve(textContent("events", []));
-      }
-      return Promise.resolve({});
-    });
-
-    await collectCalendarActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-    });
-
-    const getEventsCall = manager.callTool.mock.calls.find(
-      (c) => c[1] === "get_events",
-    );
-    expect(getEventsCall?.[2]).toEqual({
-      calendar_id: "primary",
-      start_time: "2025-06-01T00:00:00.000Z",
-      end_time: "2025-06-08T00:00:00.000Z",
-    });
-  });
-
-  it("adapts to calendarId/timeMin/timeMax when schema uses those names", async () => {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.listTools.mockResolvedValue([
-      {
-        name: "get_events",
-        inputSchema: {
-          properties: {
-            calendarId: { type: "string" },
-            timeMin: { type: "string" },
-            timeMax: { type: "string" },
-          },
-        },
-      },
-    ] as McpToolInfo[]);
-    manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "list_calendars") {
-        return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
-      }
-      if (toolName === "get_events") {
-        return Promise.resolve(textContent("events", []));
-      }
-      return Promise.resolve({});
-    });
-
-    await collectCalendarActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-    });
-
-    const getEventsCall = manager.callTool.mock.calls.find(
-      (c) => c[1] === "get_events",
-    );
-    expect(getEventsCall?.[2]).toEqual({
-      calendarId: "primary",
-      timeMin: "2025-06-01T00:00:00.000Z",
-      timeMax: "2025-06-08T00:00:00.000Z",
-    });
-  });
-
-  it("adapts to start_date/end_date when schema uses those names", async () => {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.listTools.mockResolvedValue([
-      {
-        name: "get_events",
-        inputSchema: {
-          properties: {
-            calendar_id: { type: "string" },
-            start_date: { type: "string" },
-            end_date: { type: "string" },
-          },
-        },
-      },
-    ] as McpToolInfo[]);
-    manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "list_calendars") {
-        return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
-      }
-      if (toolName === "get_events") {
-        return Promise.resolve(textContent("events", []));
-      }
-      return Promise.resolve({});
-    });
-
-    await collectCalendarActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-    });
-
-    const getEventsCall = manager.callTool.mock.calls.find(
-      (c) => c[1] === "get_events",
-    );
-    expect(getEventsCall?.[2]).toEqual({
-      calendar_id: "primary",
-      start_date: "2025-06-01T00:00:00.000Z",
-      end_date: "2025-06-08T00:00:00.000Z",
-    });
-  });
-
-  it("falls back to defaults when get_events tool is not found in advertised tools", async () => {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.listTools.mockResolvedValue([
-      { name: "list_calendars", inputSchema: { properties: {} } },
-    ] as McpToolInfo[]);
-    manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "list_calendars") {
-        return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
-      }
-      if (toolName === "get_events") {
-        return Promise.resolve(textContent("events", []));
-      }
-      return Promise.resolve({});
-    });
-
-    await collectCalendarActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-    });
-
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Could not find "get_events" in advertised tools, using default argument names',
-    );
-    const getEventsCall = manager.callTool.mock.calls.find(
-      (c) => c[1] === "get_events",
-    );
-    expect(getEventsCall?.[2]).toEqual({
-      calendar_id: "primary",
-      start_time: "2025-06-01T00:00:00.000Z",
-      end_time: "2025-06-08T00:00:00.000Z",
-    });
-  });
-
-  it("falls back to defaults when listTools throws", async () => {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.listTools.mockRejectedValue(new Error("tools unavailable"));
-    manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "list_calendars") {
-        return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
-      }
-      if (toolName === "get_events") {
-        return Promise.resolve(textContent("events", []));
-      }
-      return Promise.resolve({});
-    });
-
-    await collectCalendarActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-    });
-
-    expect(logger.warn).toHaveBeenCalledWith(
-      "Failed to probe get_events tool schema, using default argument names",
-      "tools unavailable",
-    );
-    const getEventsCall = manager.callTool.mock.calls.find(
-      (c) => c[1] === "get_events",
-    );
-    expect(getEventsCall?.[2]).toEqual({
-      calendar_id: "primary",
-      start_time: "2025-06-01T00:00:00.000Z",
-      end_time: "2025-06-08T00:00:00.000Z",
-    });
-  });
-
-  it("falls back to defaults when inputSchema has no properties object", async () => {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.listTools.mockResolvedValue([
-      { name: "get_events", inputSchema: {} },
-    ] as McpToolInfo[]);
-    manager.callTool.mockImplementation((_client: Client, toolName: string) => {
-      if (toolName === "list_calendars") {
-        return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
-      }
-      if (toolName === "get_events") {
-        return Promise.resolve(textContent("events", []));
-      }
-      return Promise.resolve({});
-    });
-
-    await collectCalendarActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-    });
-
-    const getEventsCall = manager.callTool.mock.calls.find(
-      (c) => c[1] === "get_events",
-    );
-    expect(getEventsCall?.[2]).toEqual({
-      calendar_id: "primary",
-      start_time: "2025-06-01T00:00:00.000Z",
-      end_time: "2025-06-08T00:00:00.000Z",
-    });
   });
 });
 
@@ -554,6 +367,7 @@ describe("collectCalendarActivity — tool call failures", () => {
 
     expect(result.items).toEqual([]);
     expect(result.attachmentFileIds).toEqual([]);
+    expect(manager.callTool).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledWith(
       'Calendar tool "list_calendars" failed',
       "calendars broke",
@@ -583,7 +397,7 @@ describe("collectCalendarActivity — tool call failures", () => {
     );
   });
 
-  it("logs warning and continues to next calendar when get_events throws", async () => {
+  it("logs warning and continues to next calendar when list_events throws", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation(
@@ -593,8 +407,8 @@ describe("collectCalendarActivity — tool call failures", () => {
             textContent("calendars", [{ id: "broken" }, { id: "good" }]),
           );
         }
-        if (toolName === "get_events") {
-          if (args["calendar_id"] === "broken") {
+        if (toolName === "list_events") {
+          if (args["calendarId"] === "broken") {
             return Promise.reject(new Error("events broke"));
           }
           return Promise.resolve(
@@ -616,19 +430,19 @@ describe("collectCalendarActivity — tool call failures", () => {
     expect(result.items).toHaveLength(1);
     expect(result.items[0]?.title).toBe("Good event");
     expect(logger.warn).toHaveBeenCalledWith(
-      'Calendar tool "get_events" failed for calendar "broken"',
+      'Calendar tool "list_events" failed for calendar "broken"',
       "events broke",
     );
   });
 
-  it("coerces non-Error get_events rejection reasons via String()", async () => {
+  it("coerces non-Error list_events rejection reasons via String()", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation((_client: Client, toolName: string) => {
       if (toolName === "list_calendars") {
         return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
       }
-      if (toolName === "get_events") {
+      if (toolName === "list_events") {
         return Promise.reject("bad events");
       }
       return Promise.resolve({});
@@ -642,8 +456,71 @@ describe("collectCalendarActivity — tool call failures", () => {
 
     expect(result.items).toEqual([]);
     expect(logger.warn).toHaveBeenCalledWith(
-      'Calendar tool "get_events" failed for calendar "primary"',
+      'Calendar tool "list_events" failed for calendar "primary"',
       "bad events",
+    );
+  });
+
+  it("logs warning and falls back to the original event when get_event throws", async () => {
+    const manager = makeManager();
+    manager.connect.mockResolvedValue(FAKE_CLIENT);
+    manager.callTool.mockImplementation((_client: Client, toolName: string) => {
+      if (toolName === "list_calendars") {
+        return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
+      }
+      if (toolName === "list_events") {
+        return Promise.resolve(
+          textContent("events", [{ id: "evt-sparse", summary: "Bare event" }]),
+        );
+      }
+      if (toolName === "get_event") {
+        return Promise.reject(new Error("detail broke"));
+      }
+      return Promise.resolve({});
+    });
+
+    const result = await collectCalendarActivity({
+      manager: asManager(manager),
+      serverConfig: SERVER_CONFIG,
+      window: WINDOW,
+    });
+
+    expect(result.items).toEqual([
+      { type: "calendar_event", title: "Bare event" },
+    ]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Calendar tool "get_event" failed for event "evt-sparse"',
+      "detail broke",
+    );
+  });
+
+  it("coerces non-Error get_event rejection reasons via String()", async () => {
+    const manager = makeManager();
+    manager.connect.mockResolvedValue(FAKE_CLIENT);
+    manager.callTool.mockImplementation((_client: Client, toolName: string) => {
+      if (toolName === "list_calendars") {
+        return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
+      }
+      if (toolName === "list_events") {
+        return Promise.resolve(
+          textContent("events", [{ id: "evt", summary: "S" }]),
+        );
+      }
+      if (toolName === "get_event") {
+        return Promise.reject("boom");
+      }
+      return Promise.resolve({});
+    });
+
+    await collectCalendarActivity({
+      manager: asManager(manager),
+      serverConfig: SERVER_CONFIG,
+      window: WINDOW,
+    });
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Calendar tool "get_event" failed for event "evt"',
+      "boom",
     );
   });
 });
@@ -660,7 +537,7 @@ describe("collectCalendarActivity — calendar list parsing", () => {
       if (toolName === "list_calendars") {
         return Promise.resolve(response);
       }
-      if (toolName === "get_events") {
+      if (toolName === "list_events") {
         return Promise.resolve(textContent("events", []));
       }
       return Promise.resolve({});
@@ -672,10 +549,10 @@ describe("collectCalendarActivity — calendar list parsing", () => {
       window: WINDOW,
     });
 
-    const getEventsCalls = manager.callTool.mock.calls.filter(
-      (c) => c[1] === "get_events",
+    const listEventsCalls = manager.callTool.mock.calls.filter(
+      (c) => c[1] === "list_events",
     );
-    return getEventsCalls.length;
+    return listEventsCalls.length;
   }
 
   it("uses structuredContent.calendars when present", async () => {
@@ -823,7 +700,7 @@ describe("collectCalendarActivity — event shaping", () => {
       if (toolName === "list_calendars") {
         return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
       }
-      if (toolName === "get_events") {
+      if (toolName === "list_events") {
         return Promise.resolve(textContent("events", [event]));
       }
       return Promise.resolve({});
@@ -848,7 +725,7 @@ describe("collectCalendarActivity — event shaping", () => {
       if (toolName === "list_calendars") {
         return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
       }
-      if (toolName === "get_events") {
+      if (toolName === "list_events") {
         return Promise.resolve(textContent("events", [event]));
       }
       return Promise.resolve({});
@@ -1044,14 +921,14 @@ describe("collectCalendarActivity — event list parsing", () => {
     vi.clearAllMocks();
   });
 
-  async function runGetEventsResponse(response: unknown): Promise<number> {
+  async function runListEventsResponse(response: unknown): Promise<number> {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation((_client: Client, toolName: string) => {
       if (toolName === "list_calendars") {
         return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
       }
-      if (toolName === "get_events") {
+      if (toolName === "list_events") {
         return Promise.resolve(response);
       }
       return Promise.resolve({});
@@ -1066,7 +943,7 @@ describe("collectCalendarActivity — event list parsing", () => {
   }
 
   it("skips event entries that are not objects", async () => {
-    const count = await runGetEventsResponse(
+    const count = await runListEventsResponse(
       textContent("events", [
         "string",
         42,
@@ -1077,8 +954,8 @@ describe("collectCalendarActivity — event list parsing", () => {
     expect(count).toBe(1);
   });
 
-  it("returns 0 items when get_events response is null", async () => {
-    const count = await runGetEventsResponse(null);
+  it("returns 0 items when list_events response is null", async () => {
+    const count = await runListEventsResponse(null);
     expect(count).toBe(0);
   });
 
@@ -1091,7 +968,7 @@ describe("collectCalendarActivity — event list parsing", () => {
           textContent("calendars", [{ id: "a" }, { id: "b" }]),
         );
       }
-      if (toolName === "get_events") {
+      if (toolName === "list_events") {
         return Promise.resolve(
           textContent("events", [{ summary: "No-id event", description: "d" }]),
         );
@@ -1109,90 +986,235 @@ describe("collectCalendarActivity — event list parsing", () => {
   });
 });
 
-describe("collectCalendarActivity — schema probing edge cases", () => {
+describe("collectCalendarActivity — get_event parsing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("falls back to defaults when schema properties contain unrecognized names", async () => {
+  async function runGetEventResponse(
+    response: unknown,
+  ): Promise<{ title: string; description?: string } | undefined> {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.listTools.mockResolvedValue([
-      {
-        name: "get_events",
-        inputSchema: {
-          properties: {
-            unknown_cal_field: { type: "string" },
-            unknown_start_field: { type: "string" },
-            unknown_end_field: { type: "string" },
-          },
-        },
-      },
-    ] as McpToolInfo[]);
     manager.callTool.mockImplementation((_client: Client, toolName: string) => {
       if (toolName === "list_calendars") {
         return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
       }
-      if (toolName === "get_events") {
-        return Promise.resolve(textContent("events", []));
+      if (toolName === "list_events") {
+        return Promise.resolve(
+          textContent("events", [{ id: "evt-sparse", summary: "Bare" }]),
+        );
+      }
+      if (toolName === "get_event") {
+        return Promise.resolve(response);
       }
       return Promise.resolve({});
     });
 
-    await collectCalendarActivity({
+    const result = await collectCalendarActivity({
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
     });
 
-    const getEventsCall = manager.callTool.mock.calls.find(
-      (c) => c[1] === "get_events",
-    );
-    expect(getEventsCall?.[2]).toEqual({
-      calendar_id: "primary",
-      start_time: "2025-06-01T00:00:00.000Z",
-      end_time: "2025-06-08T00:00:00.000Z",
+    const first = result.items[0];
+    if (first === undefined) {
+      return undefined;
+    }
+    const out: { title: string; description?: string } = { title: first.title };
+    if (first.description !== undefined) {
+      out.description = first.description;
+    }
+    return out;
+  }
+
+  it("uses structuredContent.event when present", async () => {
+    const out = await runGetEventResponse({
+      structuredContent: {
+        event: {
+          id: "evt-sparse",
+          summary: "Structured title",
+          description: "structured-desc",
+        },
+      },
     });
+    expect(out?.title).toBe("Structured title");
+    expect(out?.description).toBe("structured-desc");
   });
 
-  it("uses timeMin/timeMax when start_time/start_date are absent but timeMin/timeMax are present", async () => {
+  it("treats structuredContent itself as the event when no nested event key", async () => {
+    const out = await runGetEventResponse({
+      structuredContent: {
+        id: "evt-sparse",
+        summary: "Flat structured",
+        description: "flat-desc",
+      },
+    });
+    expect(out?.title).toBe("Flat structured");
+    expect(out?.description).toBe("flat-desc");
+  });
+
+  it("falls through to content.event when structuredContent is absent", async () => {
+    const out = await runGetEventResponse({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            event: {
+              id: "evt-sparse",
+              summary: "Content nested",
+              description: "content-desc",
+            },
+          }),
+        },
+      ],
+    });
+    expect(out?.title).toBe("Content nested");
+  });
+
+  it("treats flat parsed content as the event when no event key is present", async () => {
+    const out = await runGetEventResponse({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            id: "evt-sparse",
+            summary: "Flat content",
+            description: "flat",
+          }),
+        },
+      ],
+    });
+    expect(out?.title).toBe("Flat content");
+  });
+
+  it("falls back to the original event when parsed content is not an object", async () => {
+    const out = await runGetEventResponse({
+      content: [{ type: "text", text: JSON.stringify("hello") }],
+    });
+    expect(out?.title).toBe("Bare");
+    expect(out?.description).toBeUndefined();
+  });
+
+  it("falls back to the original event when content text is invalid JSON", async () => {
+    const out = await runGetEventResponse({
+      content: [{ type: "text", text: "not json{" }],
+    });
+    expect(out?.title).toBe("Bare");
+  });
+
+  it("skips content entries with non-text type", async () => {
+    const out = await runGetEventResponse({
+      content: [
+        { type: "image", data: "x" },
+        {
+          type: "text",
+          text: JSON.stringify({
+            event: {
+              id: "evt-sparse",
+              summary: "After image",
+              description: "d",
+            },
+          }),
+        },
+      ],
+    });
+    expect(out?.title).toBe("After image");
+  });
+
+  it("skips content entries where text is not a string", async () => {
+    const out = await runGetEventResponse({
+      content: [
+        { type: "text", text: 123 },
+        {
+          type: "text",
+          text: JSON.stringify({
+            event: {
+              id: "evt-sparse",
+              summary: "After bad text",
+              description: "d",
+            },
+          }),
+        },
+      ],
+    });
+    expect(out?.title).toBe("After bad text");
+  });
+
+  it("skips content entries that are not objects", async () => {
+    const out = await runGetEventResponse({
+      content: [
+        null,
+        {
+          type: "text",
+          text: JSON.stringify({
+            event: {
+              id: "evt-sparse",
+              summary: "After null",
+              description: "d",
+            },
+          }),
+        },
+      ],
+    });
+    expect(out?.title).toBe("After null");
+  });
+
+  it("falls back to the original event when response is null", async () => {
+    const out = await runGetEventResponse(null);
+    expect(out?.title).toBe("Bare");
+  });
+
+  it("falls back to the original event when response is a string", async () => {
+    const out = await runGetEventResponse("bad");
+    expect(out?.title).toBe("Bare");
+  });
+
+  it("falls back to the original event when response has no content and no structuredContent", async () => {
+    const out = await runGetEventResponse({ other: "x" });
+    expect(out?.title).toBe("Bare");
+  });
+
+  it("falls back to the original event when content is not an array", async () => {
+    const out = await runGetEventResponse({ content: "bad" });
+    expect(out?.title).toBe("Bare");
+  });
+
+  it("falls back to the original event when content has no usable entries", async () => {
+    const out = await runGetEventResponse({
+      content: [null, { type: "image" }, { type: "text", text: 5 }],
+    });
+    expect(out?.title).toBe("Bare");
+  });
+
+  it("falls back to the original event when the sparse event has no id", async () => {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.listTools.mockResolvedValue([
-      {
-        name: "get_events",
-        inputSchema: {
-          properties: {
-            calendar_id: { type: "string" },
-            timeMin: { type: "string" },
-            timeMax: { type: "string" },
-          },
-        },
-      },
-    ] as McpToolInfo[]);
     manager.callTool.mockImplementation((_client: Client, toolName: string) => {
       if (toolName === "list_calendars") {
         return Promise.resolve(textContent("calendars", [{ id: "primary" }]));
       }
-      if (toolName === "get_events") {
-        return Promise.resolve(textContent("events", []));
+      if (toolName === "list_events") {
+        return Promise.resolve(
+          textContent("events", [{ summary: "Idless bare" }]),
+        );
+      }
+      if (toolName === "get_event") {
+        throw new Error("should not be called");
       }
       return Promise.resolve({});
     });
 
-    await collectCalendarActivity({
+    const result = await collectCalendarActivity({
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
     });
 
-    const getEventsCall = manager.callTool.mock.calls.find(
-      (c) => c[1] === "get_events",
-    );
-    expect(getEventsCall?.[2]).toEqual({
-      calendar_id: "primary",
-      timeMin: "2025-06-01T00:00:00.000Z",
-      timeMax: "2025-06-08T00:00:00.000Z",
-    });
+    expect(result.items).toEqual([
+      { type: "calendar_event", title: "Idless bare" },
+    ]);
+    const toolNames = manager.callTool.mock.calls.map((c) => c[1]);
+    expect(toolNames).not.toContain("get_event");
   });
 });

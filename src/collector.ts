@@ -4,7 +4,6 @@ import type { McpClientManager } from "./mcp.ts";
 import { collectCalendarActivity } from "./sources/calendar.ts";
 import { collectConfluenceActivity } from "./sources/confluence.ts";
 import { collectCustomActivity } from "./sources/custom.ts";
-import { collectDriveActivity } from "./sources/drive.ts";
 import { collectGithubActivity } from "./sources/github.ts";
 import { collectJiraActivity } from "./sources/jira.ts";
 import type {
@@ -20,7 +19,6 @@ export interface CollectorDependencies {
   collectJira: typeof collectJiraActivity;
   collectConfluence: typeof collectConfluenceActivity;
   collectCalendar: typeof collectCalendarActivity;
-  collectDrive: typeof collectDriveActivity;
   collectCustom: typeof collectCustomActivity;
 }
 
@@ -43,17 +41,12 @@ const DEFAULT_DEPENDENCIES: CollectorDependencies = {
   collectJira: collectJiraActivity,
   collectConfluence: collectConfluenceActivity,
   collectCalendar: collectCalendarActivity,
-  collectDrive: collectDriveActivity,
   collectCustom: collectCustomActivity,
 };
 
 interface Phase1Task {
   source: string;
   task: Promise<ActivityItem[]>;
-}
-
-interface CalendarState {
-  attachmentFileIds: string[];
 }
 
 function resolveCustomUsername(config: ValidatedConfig): string {
@@ -145,7 +138,6 @@ function buildConfluenceTask(
 function buildCalendarTask(
   options: CollectOptions,
   deps: CollectorDependencies,
-  calendarState: CalendarState,
 ): Phase1Task {
   const { manager, window, serverConfigs } = options;
   return {
@@ -162,7 +154,6 @@ function buildCalendarTask(
         serverConfig,
         window,
       });
-      calendarState.attachmentFileIds = result.attachmentFileIds;
       return result.items;
     })(),
   };
@@ -192,7 +183,6 @@ function buildCustomTask(
 function buildPhase1Tasks(
   options: CollectOptions,
   deps: CollectorDependencies,
-  calendarState: CalendarState,
 ): Phase1Task[] {
   const { config } = options;
   const tasks: Phase1Task[] = [];
@@ -207,7 +197,7 @@ function buildPhase1Tasks(
     tasks.push(buildConfluenceTask(options, deps));
   }
   if (config.sources.calendar?.enabled) {
-    tasks.push(buildCalendarTask(options, deps, calendarState));
+    tasks.push(buildCalendarTask(options, deps));
   }
 
   // Custom MCP servers are configured separately via mcp-servers.json and run
@@ -217,37 +207,6 @@ function buildPhase1Tasks(
   return tasks;
 }
 
-async function runPhase2Drive(
-  options: CollectOptions,
-  deps: CollectorDependencies,
-  attachmentFileIds: string[],
-  results: SourceResult[],
-  failures: string[],
-): Promise<void> {
-  if (!options.config.sources.drive?.enabled) {
-    return;
-  }
-  try {
-    const serverConfig = options.serverConfigs.drive;
-    if (serverConfig === undefined) {
-      throw new Error(
-        'Drive source is enabled but requires "serverConfigs.drive"',
-      );
-    }
-    const items = await deps.collectDrive({
-      manager: options.manager,
-      serverConfig,
-      window: options.window,
-      attachmentFileIds,
-    });
-    results.push({ source: "drive", data: items });
-    logger.info(`Source "drive" collected ${items.length} item(s)`);
-  } catch (error) {
-    logger.error('Source "drive" failed', errorMessage(error));
-    failures.push("drive");
-  }
-}
-
 export async function collect(options: CollectOptions): Promise<CollectResult> {
   const dependencies: CollectorDependencies = {
     ...DEFAULT_DEPENDENCIES,
@@ -255,8 +214,7 @@ export async function collect(options: CollectOptions): Promise<CollectResult> {
   };
 
   logger.startStage("collect");
-  const calendarState: CalendarState = { attachmentFileIds: [] };
-  const phase1Tasks = buildPhase1Tasks(options, dependencies, calendarState);
+  const phase1Tasks = buildPhase1Tasks(options, dependencies);
 
   const settled = await Promise.allSettled(phase1Tasks.map((t) => t.task));
 
@@ -278,14 +236,6 @@ export async function collect(options: CollectOptions): Promise<CollectResult> {
     results.push({ source: entry.source, data: items });
     logger.info(`Source "${entry.source}" collected ${items.length} item(s)`);
   }
-
-  await runPhase2Drive(
-    options,
-    dependencies,
-    calendarState.attachmentFileIds,
-    results,
-    failures,
-  );
 
   logger.endStage("collect");
   return { results, failures };

@@ -140,7 +140,7 @@ describe("validateConfig", () => {
     });
   });
 
-  describe("Google OAuth validation for calendar/drive", () => {
+  describe("Google OAuth validation for calendar", () => {
     it("exits when calendar is enabled but server has no GOOGLE_OAUTH_CLIENT_ID", () => {
       const cfg = validConfig({
         sources: { calendar: { enabled: true, server: "google" } },
@@ -169,21 +169,10 @@ describe("validateConfig", () => {
       expect(() => validateConfig(cfg)).toThrow("process.exit called");
     });
 
-    it("exits when drive is enabled but mapped server is missing OAuth env", () => {
-      const cfg = validConfig({
-        sources: { drive: { enabled: true, server: "google" } },
-        mcpServers: {
-          google: { command: "uvx", args: ["workspace-mcp"], env: {} },
-        },
-      });
-      expect(() => validateConfig(cfg)).toThrow("process.exit called");
-    });
-
-    it("resolves the server from source.server for calendar/drive", () => {
+    it("resolves the server from source.server for calendar", () => {
       const cfg = validConfig({
         sources: {
           calendar: { enabled: true, server: "google" },
-          drive: { enabled: true, server: "google" },
         },
         mcpServers: {
           google: {
@@ -198,7 +187,6 @@ describe("validateConfig", () => {
       });
       const result = validateConfig(cfg);
       expect(result.sources.calendar).toBeDefined();
-      expect(result.sources.drive).toBeDefined();
     });
 
     it("exits when source.server points to a non-existent server", () => {
@@ -469,11 +457,10 @@ describe("resolveSourceServerConfigs", () => {
     expect(result.confluence?.name).toBe("atlassian");
   });
 
-  it("resolves calendar and drive sources", () => {
+  it("resolves calendar sources", () => {
     const config = makeValidatedConfig({
       sources: {
         calendar: { enabled: true, server: "google" },
-        drive: { enabled: true, server: "google" },
       },
       mcpServers: {
         google: {
@@ -498,7 +485,6 @@ describe("resolveSourceServerConfigs", () => {
       },
       toolCalls: [],
     });
-    expect(result.drive).toEqual(result.calendar);
   });
 
   it("skips disabled sources", () => {
@@ -531,7 +517,6 @@ describe("resolveSourceServerConfigs", () => {
           baseUrl: "https://x.atlassian.net/wiki",
         },
         calendar: { enabled: true, server: "missing" },
-        drive: { enabled: true, server: "missing" },
       },
       mcpServers: {},
     });
@@ -541,6 +526,5 @@ describe("resolveSourceServerConfigs", () => {
     expect(result.jira).toBeUndefined();
     expect(result.confluence).toBeUndefined();
     expect(result.calendar).toBeUndefined();
-    expect(result.drive).toBeUndefined();
   });
 });

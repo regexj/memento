@@ -30,7 +30,7 @@ function makeServerConfig(name: string): McpServerConfig {
   return { name, command: "node", args: [`${name}.js`], toolCalls: [] };
 }
 
-const SERVER_CONFIGS: Required<SourceServerConfigs> = {
+const SERVER_CONFIGS: SourceServerConfigs = {
   github: makeServerConfig("github"),
   jira: makeServerConfig("jira"),
   confluence: makeServerConfig("confluence"),
@@ -39,7 +39,6 @@ const SERVER_CONFIGS: Required<SourceServerConfigs> = {
     url: "https://calendar.example/mcp",
     toolCalls: [],
   },
-  drive: { name: "drive", url: "https://drive.example/mcp", toolCalls: [] },
 };
 
 function makeConfig(overrides: Partial<ValidatedConfig> = {}): ValidatedConfig {
@@ -55,7 +54,6 @@ function makeConfig(overrides: Partial<ValidatedConfig> = {}): ValidatedConfig {
       jira: { command: "node", args: ["jira.js"] },
       confluence: { command: "node", args: ["confluence.js"] },
       calendar: { url: "https://calendar.example/mcp" },
-      drive: { url: "https://drive.example/mcp" },
     },
     reviewCycleMonth: 1,
   };
@@ -85,9 +83,6 @@ function configWithSources(...sources: string[]): ValidatedConfig {
   if (sources.includes("calendar")) {
     sourcesObj.calendar = { enabled: true, server: "calendar" };
   }
-  if (sources.includes("drive")) {
-    sourcesObj.drive = { enabled: true, server: "drive" };
-  }
   return makeConfig({ sources: sourcesObj });
 }
 
@@ -107,10 +102,6 @@ function calendarItem(): ActivityItem {
   return { type: "calendar_event", title: "Meeting" };
 }
 
-function driveItem(): ActivityItem {
-  return { type: "drive_document_authored", title: "Doc" };
-}
-
 function customItem(): ActivityItem {
   return { type: "custom_slack_search", title: "Message" };
 }
@@ -128,7 +119,6 @@ function makeDependencies(
         attachmentFileIds: ["file-1"],
       }),
     ),
-    collectDrive: vi.fn(async () => [driveItem()]),
     collectCustom: vi.fn(async () => [customItem()]),
   };
   return { ...base, ...overrides };
@@ -155,20 +145,18 @@ describe("collect — enabled sources selection", () => {
     expect(dependencies.collectJira).not.toHaveBeenCalled();
     expect(dependencies.collectConfluence).not.toHaveBeenCalled();
     expect(dependencies.collectCalendar).not.toHaveBeenCalled();
-    expect(dependencies.collectDrive).not.toHaveBeenCalled();
     expect(dependencies.collectCustom).toHaveBeenCalledTimes(1);
     expect(result.failures).toEqual([]);
     expect(result.results.map((r) => r.source)).toEqual(["github", "custom"]);
   });
 
-  it("runs all sources and passes Calendar attachmentFileIds to Drive", async () => {
+  it("runs all sources including calendar", async () => {
     const dependencies = makeDependencies();
     const config = configWithSources(
       "github",
       "jira",
       "confluence",
       "calendar",
-      "drive",
     );
 
     const result = await collect({
@@ -203,12 +191,6 @@ describe("collect — enabled sources selection", () => {
       serverConfig: SERVER_CONFIGS.calendar,
       window: WINDOW,
     });
-    expect(dependencies.collectDrive).toHaveBeenCalledWith({
-      manager: MANAGER,
-      serverConfig: SERVER_CONFIGS.drive,
-      window: WINDOW,
-      attachmentFileIds: ["file-1"],
-    });
     expect(dependencies.collectCustom).toHaveBeenCalledTimes(1);
 
     expect(result.results.map((r) => r.source)).toEqual([
@@ -217,7 +199,6 @@ describe("collect — enabled sources selection", () => {
       "confluence",
       "calendar",
       "custom",
-      "drive",
     ]);
     expect(result.failures).toEqual([]);
   });
@@ -357,76 +338,6 @@ describe("collect — graceful degradation (Property 6)", () => {
       "raw string",
     );
   });
-
-  it("runs Drive even when Calendar failed and passes empty attachmentFileIds", async () => {
-    const dependencies = makeDependencies({
-      collectCalendar: vi.fn(async () => {
-        throw new Error("calendar oauth denied");
-      }),
-    });
-    const config = configWithSources("calendar", "drive");
-
-    const result = await collect({
-      manager: MANAGER,
-      window: WINDOW,
-      config,
-      serverConfigs: SERVER_CONFIGS,
-      dependencies,
-    });
-
-    expect(dependencies.collectDrive).toHaveBeenCalledWith({
-      manager: MANAGER,
-      serverConfig: SERVER_CONFIGS.drive,
-      window: WINDOW,
-      attachmentFileIds: [],
-    });
-    expect(result.failures).toEqual(["calendar"]);
-    expect(result.results.map((r) => r.source)).toEqual(["custom", "drive"]);
-  });
-
-  it("records drive failure when Phase 2 throws", async () => {
-    const dependencies = makeDependencies({
-      collectDrive: vi.fn(async () => {
-        throw new Error("drive down");
-      }),
-    });
-    const config = configWithSources("calendar", "drive");
-
-    const result = await collect({
-      manager: MANAGER,
-      window: WINDOW,
-      config,
-      serverConfigs: SERVER_CONFIGS,
-      dependencies,
-    });
-
-    expect(result.failures).toEqual(["drive"]);
-    expect(result.results.map((r) => r.source)).toEqual(["calendar", "custom"]);
-    expect(logger.error).toHaveBeenCalledWith(
-      'Source "drive" failed',
-      "drive down",
-    );
-  });
-
-  it("coerces non-Error rejection reasons in Phase 2 via String()", async () => {
-    const dependencies = makeDependencies({
-      collectDrive: vi.fn(async () => {
-        throw 42;
-      }),
-    });
-    const config = configWithSources("drive");
-
-    const result = await collect({
-      manager: MANAGER,
-      window: WINDOW,
-      config,
-      serverConfigs: SERVER_CONFIGS,
-      dependencies,
-    });
-
-    expect(result.failures).toEqual(["drive"]);
-    expect(logger.error).toHaveBeenCalledWith('Source "drive" failed', "42");
-  });
 });
 
 describe("collect — missing server/config errors", () => {
@@ -502,24 +413,6 @@ describe("collect — missing server/config errors", () => {
 
     expect(result.failures).toContain("calendar");
   });
-
-  it("fails drive when serverConfigs.drive is missing", async () => {
-    const dependencies = makeDependencies();
-    const config = configWithSources("drive");
-    const serverConfigs: SourceServerConfigs = { ...SERVER_CONFIGS };
-    delete serverConfigs.drive;
-
-    const result = await collect({
-      manager: MANAGER,
-      window: WINDOW,
-      config,
-      serverConfigs,
-      dependencies,
-    });
-
-    expect(result.failures).toContain("drive");
-    expect(dependencies.collectDrive).not.toHaveBeenCalled();
-  });
 });
 
 describe("collect — logging", () => {
@@ -562,23 +455,6 @@ describe("collect — logging", () => {
     );
     expect(logger.info).toHaveBeenCalledWith(
       'Source "custom" collected 1 item(s)',
-    );
-  });
-
-  it("logs the drive item count on Phase 2 success", async () => {
-    const dependencies = makeDependencies();
-    const config = configWithSources("drive");
-
-    await collect({
-      manager: MANAGER,
-      window: WINDOW,
-      config,
-      serverConfigs: SERVER_CONFIGS,
-      dependencies,
-    });
-
-    expect(logger.info).toHaveBeenCalledWith(
-      'Source "drive" collected 1 item(s)',
     );
   });
 });

@@ -85,18 +85,11 @@ const CalendarSourceSchema = z.object({
   calendarIds: z.array(z.string()).optional(),
 });
 
-const DriveSourceSchema = z.object({
-  enabled: z.boolean(),
-  server: z.string().min(1, "config.sources.drive.server must not be empty"),
-  userEmail: z.string().optional(),
-});
-
 const SourcesConfigSchema = z.object({
   github: GitHubSourceSchema.optional(),
   jira: JiraSourceSchema.optional(),
   confluence: ConfluenceSourceSchema.optional(),
   calendar: CalendarSourceSchema.optional(),
-  drive: DriveSourceSchema.optional(),
 });
 
 const MementoConfigSchema = z
@@ -108,9 +101,8 @@ const MementoConfigSchema = z
     customServers: z.array(CustomServerEntrySchema).optional(),
   })
   .superRefine((data, ctx) => {
-    const googleSources: Array<"calendar" | "drive"> = [];
+    const googleSources: Array<"calendar"> = [];
     if (data.sources.calendar?.enabled) googleSources.push("calendar");
-    if (data.sources.drive?.enabled) googleSources.push("drive");
 
     if (googleSources.length === 0) return;
 
@@ -223,12 +215,6 @@ export function resolveSourceServerConfigs(
     const entry = config.mcpServers[sources.calendar.server];
     if (entry) {
       result.calendar = toMcpServerConfig(sources.calendar.server, entry);
-    }
-  }
-  if (sources.drive?.enabled) {
-    const entry = config.mcpServers[sources.drive.server];
-    if (entry) {
-      result.drive = toMcpServerConfig(sources.drive.server, entry);
     }
   }
 

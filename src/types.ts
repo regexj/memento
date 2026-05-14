@@ -54,7 +54,6 @@ export interface SourceServerConfigs {
   jira?: McpServerConfig;
   confluence?: McpServerConfig;
   calendar?: McpServerConfig;
-  drive?: McpServerConfig;
 }
 
 export interface ToolCallConfig {

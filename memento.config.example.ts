@@ -53,16 +53,14 @@ export const config = defineConfig({
       server: "atlassian",
       baseUrl: "https://<your-org>.atlassian.net/wiki",
     },
-    // Calendar and Drive require Google Workspace OAuth setup.
+    // Calendar requires Google OAuth setup.
     // See the "Google Workspace authentication" section in README.md.
+    // By default uses the community workspace-mcp server ("google").
+    // Alternatively, point `server` at "google_calendar" for
+    // the official Google MCP endpoint (requires your own token management).
     calendar: {
       enabled: false,
       server: "google",
-    },
-    drive: {
-      enabled: false,
-      server: "google",
-      userEmail: "<your-google-email>",
     },
   },
 
@@ -94,18 +92,43 @@ export const config = defineConfig({
       },
     },
 
-    // Google Workspace (Calendar + Drive) — local stdio server
+    // Google Calendar — official Google MCP server (remote HTTP)
+    // Uses OAuth-based authentication managed by Google.
+    // See: https://developers.google.com/calendar/api/guides/overview
+    google_calendar: {
+      url: "https://calendarmcp.googleapis.com/mcp/v1",
+      headers: {
+        Authorization: "Bearer <your-google-oauth-access-token>",
+      },
+    },
+
+    // Google Workspace (Calendar) — local stdio server (recommended)
     // Uses the community `taylorwilsdon/google_workspace_mcp` server.
     // Requires `uv`/`uvx` to be installed (https://docs.astral.sh/uv/).
+    //
+    // Setup:
+    // 1. Create a Google Cloud project at https://console.cloud.google.com
+    // 2. Enable the Google Calendar API
+    // 3. Configure OAuth consent screen (External, add yourself as test user)
+    //    → Publish to "In production" to avoid 7-day refresh token expiry
+    // 4. Create a Desktop OAuth client (Credentials → OAuth client ID → Desktop app)
+    // 5. Copy the Client ID and Client Secret below
+    // 6. Run `npm run memento` once interactively to complete the browser consent flow
+    //    (credentials are cached at ~/.google_workspace_mcp/credentials/)
     google: {
       command: "uvx",
-      args: ["workspace-mcp"],
+      args: [
+        "workspace-mcp",
+        "--single-user",
+        "--read-only",
+        "--tools",
+        "calendar",
+      ],
       env: {
         GOOGLE_OAUTH_CLIENT_ID: "<your-google-oauth-client-id>",
         GOOGLE_OAUTH_CLIENT_SECRET: "<your-google-oauth-client-secret>",
         OAUTHLIB_INSECURE_TRANSPORT: "1",
-        WORKSPACE_MCP_READ_ONLY: "true",
-        WORKSPACE_MCP_TOOLS: "calendar,drive",
+        USER_GOOGLE_EMAIL: "<your-google-email>",
       },
     },
   },
