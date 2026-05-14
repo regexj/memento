@@ -591,7 +591,7 @@ describe("collectCalendarActivity — response parsing edge cases", () => {
       content: [{ type: "text", text: 'Calendars:\n- "Cal" (ID: cal@x.com)' }],
     });
 
-    const result = await collectCalendarActivity({
+    await collectCalendarActivity({
       manager: asManager(manager),
       serverConfig: SERVER_CONFIG,
       window: WINDOW,
