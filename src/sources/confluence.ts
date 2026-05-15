@@ -26,11 +26,22 @@ function extractResultsFromStructured(
   if (!isRecord(structured)) {
     return undefined;
   }
-  const items = structured["results"];
-  if (Array.isArray(items)) {
-    return items;
+  const result = structured["result"];
+  if (typeof result !== "string") {
+    return undefined;
   }
-  return undefined;
+  try {
+    const parsed: unknown = JSON.parse(result);
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    if (isRecord(parsed) && Array.isArray(parsed["result"])) {
+      return parsed["result"] as unknown[];
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function extractResultsFromContent(content: unknown): unknown[] | undefined {
@@ -130,6 +141,10 @@ function shapeConfluencePage(
     const spaceName = extractSpaceName(raw);
     if (spaceName !== undefined) {
       item.spaceName = spaceName;
+    }
+
+    if (isRecord(raw["content"])) {
+      item.description = getString(raw["content"]["value"]);
     }
 
     return item;

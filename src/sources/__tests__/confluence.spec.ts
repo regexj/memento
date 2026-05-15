@@ -31,6 +31,12 @@ function textContent(results: unknown): {
   return { content: [{ type: "text", text: JSON.stringify({ results }) }] };
 }
 
+function structuredResult(payload: unknown): {
+  structuredContent: { result: string };
+} {
+  return { structuredContent: { result: JSON.stringify(payload) } };
+}
+
 const WINDOW: CollectionWindow = {
   from: new Date("2025-06-01T00:00:00.000Z"),
   to: new Date("2025-06-08T00:00:00.000Z"),
@@ -76,6 +82,7 @@ describe("collectConfluenceActivity — happy path", () => {
                 title: "Updated runbook",
                 space: { name: "Platform" },
                 url: "https://example.atlassian.net/wiki/spaces/PLAT/pages/456/Updated-runbook",
+                content: { value: "Runbook for deployments" },
               },
             ]),
           );
@@ -125,6 +132,7 @@ describe("collectConfluenceActivity — happy path", () => {
         title: "Updated runbook",
         url: "https://example.atlassian.net/wiki/spaces/PLAT/pages/456/Updated-runbook",
         spaceName: "Platform",
+        description: "Runbook for deployments",
       },
     ]);
 
@@ -333,9 +341,50 @@ describe("collectConfluenceActivity — response parsing", () => {
     return result.filter((item) => item.type === "page_created").length;
   }
 
-  it("falls through to content when structuredContent has no results array", async () => {
+  it("parses structuredContent.result containing a result array", async () => {
+    const count = await runSingleToolResponse(
+      structuredResult({ result: [{ title: "Structured page" }] }),
+    );
+    expect(count).toBe(1);
+  });
+
+  it("parses structuredContent.result containing a bare array", async () => {
+    const count = await runSingleToolResponse(
+      structuredResult([{ title: "Bare array page" }]),
+    );
+    expect(count).toBe(1);
+  });
+
+  it("returns empty when structuredContent.result parses to an object without result array", async () => {
+    const count = await runSingleToolResponse(structuredResult({ total: 0 }));
+    expect(count).toBe(0);
+  });
+
+  it("returns empty when structuredContent.result is invalid JSON", async () => {
     const count = await runSingleToolResponse({
-      structuredContent: { other: "value" },
+      structuredContent: { result: "not json{" },
+    });
+    expect(count).toBe(0);
+  });
+
+  it("falls through to content when structuredContent.result is not a string", async () => {
+    const count = await runSingleToolResponse({
+      structuredContent: { result: 123 },
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            results: [{ title: "Content page" }],
+          }),
+        },
+      ],
+    });
+    expect(count).toBe(1);
+  });
+
+  it("falls through to content when structuredContent is not an object", async () => {
+    const count = await runSingleToolResponse({
+      structuredContent: "not an object",
       content: [
         {
           type: "text",
@@ -385,7 +434,7 @@ describe("collectConfluenceActivity — response parsing", () => {
     expect(count).toBe(0);
   });
 
-  it("uses a bare array returned from JSON.parse", async () => {
+  it("uses a bare array returned from content JSON.parse", async () => {
     const count = await runSingleToolResponse({
       content: [
         {
@@ -457,6 +506,7 @@ describe("collectConfluenceActivity — page shaping", () => {
     title: string;
     url?: string;
     spaceName?: string;
+    description?: string;
   }
 
   async function collectFirstCreated(
@@ -546,31 +596,35 @@ describe("collectConfluenceActivity — page shaping", () => {
     expect(item?.spaceName).toBeUndefined();
   });
 
-  it("uses structuredContent.results when present", async () => {
-    const manager = makeManager();
-    manager.connect.mockResolvedValue(FAKE_CLIENT);
-    manager.callTool.mockImplementation(
-      (_client: Client, _toolName: string, args: Record<string, unknown>) => {
-        const cql = args["query"] as string;
-        if (cql.includes("creator =")) {
-          return Promise.resolve({
-            structuredContent: {
-              results: [{ title: "Structured page" }],
-            },
-          });
-        }
-        return Promise.resolve(textContent([]));
-      },
-    );
-
-    const result = await collectConfluenceActivity({
-      manager: asManager(manager),
-      serverConfig: SERVER_CONFIG,
-      window: WINDOW,
-      baseUrl: BASE_URL,
+  it("extracts description from content.value", async () => {
+    const item = await collectFirstCreated({
+      title: "T",
+      content: { value: "Page body content" },
     });
+    expect(item?.description).toBe("Page body content");
+  });
 
-    const page = result.find((item) => item.type === "page_created");
-    expect(page?.title).toBe("Structured page");
+  it("omits description when content is not an object", async () => {
+    const item = await collectFirstCreated({
+      title: "T",
+      content: "not an object",
+    });
+    expect(item?.description).toBeUndefined();
+  });
+
+  it("omits description when content.value is not a string", async () => {
+    const item = await collectFirstCreated({
+      title: "T",
+      content: { value: 42 },
+    });
+    expect(item?.description).toBeUndefined();
+  });
+
+  it("omits description when content object has no value key", async () => {
+    const item = await collectFirstCreated({
+      title: "T",
+      content: { other: "stuff" },
+    });
+    expect(item?.description).toBeUndefined();
   });
 });
