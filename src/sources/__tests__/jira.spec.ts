@@ -31,6 +31,12 @@ function textContent(issues: unknown): {
   return { content: [{ type: "text", text: JSON.stringify({ issues }) }] };
 }
 
+function structuredResult(payload: unknown): {
+  structuredContent: { result: string };
+} {
+  return { structuredContent: { result: JSON.stringify(payload) } };
+}
+
 const WINDOW: CollectionWindow = {
   from: new Date("2025-06-01T00:00:00.000Z"),
   to: new Date("2025-06-08T00:00:00.000Z"),
@@ -66,6 +72,7 @@ describe("collectJiraActivity — happy path", () => {
                 key: "PROJ-1",
                 fields: {
                   summary: "Done ticket",
+                  description: "Completed the work",
                   status: { name: "Done" },
                   issuetype: { name: "Task" },
                   customfield_10016: 5,
@@ -139,6 +146,7 @@ describe("collectJiraActivity — happy path", () => {
       "jira_search",
       {
         jql: 'assignee = "alice" AND resolved >= "2025-06-01" AND resolved <= "2025-06-08"',
+        limit: 100,
       },
     ]);
     expect(calls[1]).toEqual([
@@ -146,18 +154,23 @@ describe("collectJiraActivity — happy path", () => {
       "jira_search",
       {
         jql: 'commentedByUser = "alice" AND updated >= "2025-06-01" AND updated <= "2025-06-08"',
+        limit: 100,
       },
     ]);
     expect(calls[2]).toEqual([
       FAKE_CLIENT,
       "jira_search",
-      { jql: 'status CHANGED BY "alice" DURING ("2025-06-01", "2025-06-08")' },
+      {
+        jql: 'status CHANGED BY "alice" DURING ("2025-06-01", "2025-06-08")',
+        limit: 100,
+      },
     ]);
     expect(calls[3]).toEqual([
       FAKE_CLIENT,
       "jira_search",
       {
         jql: 'reporter = "alice" AND created >= "2025-06-01" AND created <= "2025-06-08"',
+        limit: 100,
       },
     ]);
 
@@ -166,6 +179,7 @@ describe("collectJiraActivity — happy path", () => {
         type: "ticket_completed",
         title: "Done ticket",
         ticketKey: "PROJ-1",
+        description: "Completed the work",
         url: "https://example.atlassian.net/browse/PROJ-1",
         issueType: "Task",
         storyPoints: 5,
@@ -176,6 +190,7 @@ describe("collectJiraActivity — happy path", () => {
         type: "ticket_commented",
         title: "Commented ticket",
         ticketKey: "PROJ-2",
+        description: undefined,
         url: "https://example.atlassian.net/browse/PROJ-2",
         issueType: "Bug",
         metadata: { status: "In Progress" },
@@ -184,6 +199,7 @@ describe("collectJiraActivity — happy path", () => {
         type: "ticket_transitioned",
         title: "Transitioned ticket",
         ticketKey: "PROJ-3",
+        description: undefined,
         url: "https://example.atlassian.net/browse/PROJ-3",
         issueType: "Story",
         epicName: "Epic A",
@@ -193,6 +209,7 @@ describe("collectJiraActivity — happy path", () => {
         type: "ticket_created",
         title: "Created ticket",
         ticketKey: "PROJ-4",
+        description: undefined,
         url: "https://example.atlassian.net/browse/PROJ-4",
         issueType: "Task",
         metadata: { status: "To Do" },
@@ -367,18 +384,28 @@ describe("collectJiraActivity — response parsing", () => {
     return result.filter((item) => item.type === "ticket_completed").length;
   }
 
-  it("uses structuredContent.issues when present", async () => {
-    const count = await runSingleToolResponse({
-      structuredContent: {
-        issues: [{ key: "PROJ-1", fields: { summary: "Structured issue" } }],
-      },
-    });
+  it("parses structuredContent.result containing issues", async () => {
+    const count = await runSingleToolResponse(
+      structuredResult({
+        total: 1,
+        start_at: 0,
+        max_results: 50,
+        issues: [{ key: "PROJ-1", summary: "Structured issue" }],
+      }),
+    );
     expect(count).toBe(1);
   });
 
-  it("falls through to content when structuredContent has no issues array", async () => {
+  it("parses structuredContent.result containing a bare array", async () => {
+    const count = await runSingleToolResponse(
+      structuredResult([{ key: "PROJ-1", summary: "Bare array" }]),
+    );
+    expect(count).toBe(1);
+  });
+
+  it("falls through to content when structuredContent.result is not a string", async () => {
     const count = await runSingleToolResponse({
-      structuredContent: { other: "value" },
+      structuredContent: { result: 123 },
       content: [
         {
           type: "text",
@@ -389,6 +416,35 @@ describe("collectJiraActivity — response parsing", () => {
       ],
     });
     expect(count).toBe(1);
+  });
+
+  it("falls through to content when structuredContent is not an object", async () => {
+    const count = await runSingleToolResponse({
+      structuredContent: "not an object",
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            issues: [{ key: "PROJ-2", fields: { summary: "Content issue" } }],
+          }),
+        },
+      ],
+    });
+    expect(count).toBe(1);
+  });
+
+  it("returns empty when structuredContent.result is invalid JSON", async () => {
+    const count = await runSingleToolResponse({
+      structuredContent: { result: "not json{" },
+    });
+    expect(count).toBe(0);
+  });
+
+  it("returns empty when structuredContent.result parses to an object without issues", async () => {
+    const count = await runSingleToolResponse({
+      structuredContent: { result: JSON.stringify({ total: 0 }) },
+    });
+    expect(count).toBe(0);
   });
 
   it("skips content entries with non-text type", async () => {
@@ -428,7 +484,7 @@ describe("collectJiraActivity — response parsing", () => {
     expect(count).toBe(0);
   });
 
-  it("uses a bare array returned from JSON.parse", async () => {
+  it("uses a bare array returned from content JSON.parse", async () => {
     const count = await runSingleToolResponse({
       content: [
         {
@@ -509,6 +565,7 @@ describe("collectJiraActivity — issue shaping", () => {
     title: string;
     ticketKey?: string;
     url?: string;
+    description?: string;
     issueType?: string;
     storyPoints?: number;
     epicName?: string;
@@ -552,13 +609,75 @@ describe("collectJiraActivity — issue shaping", () => {
     expect(item?.title).toBe("PROJ-10");
   });
 
-  it("treats a missing fields object as empty fields", async () => {
+  it("uses top-level fields when fields object is present", async () => {
+    const item = await collectFirstCompleted({
+      key: "PROJ-30",
+      fields: {
+        summary: "Nested summary",
+        description: "Nested description",
+        issuetype: { name: "Bug" },
+        status: { name: "Done" },
+      },
+    });
+    expect(item?.title).toBe("Nested summary");
+    expect(item?.description).toBe("Nested description");
+    expect(item?.issueType).toBe("Bug");
+    expect(item?.metadata).toEqual({ status: "Done" });
+  });
+
+  it("falls back to raw object when fields is not present (flattened format)", async () => {
+    const item = await collectFirstCompleted({
+      key: "PROJ-31",
+      summary: "Flat summary",
+      description: "Flat description",
+      issuetype: { name: "Task" },
+      status: { name: "In Progress" },
+    });
+    expect(item?.title).toBe("Flat summary");
+    expect(item?.description).toBe("Flat description");
+    expect(item?.issueType).toBe("Task");
+    expect(item?.metadata).toEqual({ status: "In Progress" });
+  });
+
+  it("handles flattened format with issue_type (mcp-atlassian style)", async () => {
+    // The mcp-atlassian server uses issue_type instead of issuetype.
+    // extractIssueType looks for "issuetype", so issue_type won't match.
+    const item = await collectFirstCompleted({
+      key: "PROJ-32",
+      summary: "MCP style",
+      issue_type: { name: "Story" },
+      status: { name: "Done" },
+    });
+    expect(item?.title).toBe("MCP style");
+    // issue_type doesn't match "issuetype" — issueType will be undefined
+    expect(item?.issueType).toBeUndefined();
+    expect(item?.metadata).toEqual({ status: "Done" });
+  });
+
+  it("treats a missing fields object as raw (uses top-level properties)", async () => {
     const item = await collectFirstCompleted({ key: "PROJ-11" });
     expect(item?.title).toBe("PROJ-11");
+    expect(item?.description).toBeUndefined();
     expect(item?.issueType).toBeUndefined();
     expect(item?.storyPoints).toBeUndefined();
     expect(item?.epicName).toBeUndefined();
     expect(item?.metadata).toBeUndefined();
+  });
+
+  it("extracts description from fields", async () => {
+    const item = await collectFirstCompleted({
+      key: "PROJ-33",
+      fields: { summary: "S", description: "A detailed description" },
+    });
+    expect(item?.description).toBe("A detailed description");
+  });
+
+  it("sets description to undefined when not present", async () => {
+    const item = await collectFirstCompleted({
+      key: "PROJ-34",
+      fields: { summary: "S" },
+    });
+    expect(item?.description).toBeUndefined();
   });
 
   it("reads story points from alternate custom field 10026", async () => {

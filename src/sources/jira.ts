@@ -40,11 +40,22 @@ function extractIssuesFromStructured(
   if (!isRecord(structured)) {
     return undefined;
   }
-  const items = structured["issues"];
-  if (Array.isArray(items)) {
-    return items;
+  const result = structured["result"];
+  if (typeof result !== "string") {
+    return undefined;
   }
-  return undefined;
+  try {
+    const parsed: unknown = JSON.parse(result);
+    if (isRecord(parsed) && Array.isArray(parsed["issues"])) {
+      return parsed["issues"] as unknown[];
+    }
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function extractIssuesFromContent(content: unknown): unknown[] | undefined {
@@ -159,13 +170,14 @@ function shapeJiraIssue(
     if (key === undefined) {
       return null;
     }
-    const fields = isRecord(raw["fields"]) ? raw["fields"] : {};
+    const fields = isRecord(raw["fields"]) ? raw["fields"] : raw;
     const summary = getString(fields["summary"]) ?? key;
 
     const item: ActivityItem = {
       type,
       title: summary,
       ticketKey: key,
+      description: getString(fields["description"]),
       url: buildTicketUrl(baseUrl, key),
     };
 
@@ -226,6 +238,7 @@ async function runJiraInvocation(
   try {
     const raw = await manager.callTool(client, "jira_search", {
       jql: invocation.jql,
+      limit: 100,
     });
     const issues = parseToolResult(raw);
     const shaped: ActivityItem[] = [];
