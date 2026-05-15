@@ -1,3 +1,4 @@
+/* v8 ignore start */
 /**
  * One-time Google OAuth setup script.
  *
@@ -7,20 +8,22 @@
  *
  * Usage: node scripts/google-auth.ts
  */
-import { config } from "../memento.config.ts";
+import { config } from "../../memento.config.ts";
+import { logger } from "../logger.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import "dotenv/config";
 
 const serverConfig = config.mcpServers["google"];
 if (!serverConfig || !("command" in serverConfig)) {
-  console.error(
+  logger.error(
     'No "google" stdio server found in memento.config.ts mcpServers',
   );
   process.exit(1);
 }
 
-console.log("Starting workspace-mcp server...");
+logger.startStage("google-auth");
+logger.info("Starting workspace-mcp server...");
 
 const transport = new StdioClientTransport({
   command: serverConfig.command,
@@ -35,9 +38,9 @@ const client = new Client(
 );
 
 await client.connect(transport);
-console.log("Connected to workspace-mcp.");
-console.log("Triggering OAuth flow — complete the sign-in in your browser.\n");
-console.log("Waiting for authentication (will retry every 5 seconds)...\n");
+logger.info("Connected to workspace-mcp.");
+logger.info("Triggering OAuth flow — complete the sign-in in your browser.");
+logger.info("Waiting for authentication (will retry every 5 seconds)...");
 
 const MAX_ATTEMPTS = 60; // 5 minutes
 const DELAY_MS = 5000;
@@ -88,22 +91,24 @@ for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     });
 
     if (isSuccess(result)) {
-      console.log("\n✓ Authentication successful! Calendars retrieved.");
-      console.log(JSON.stringify(result, null, 2));
+      logger.info("Authentication successful! Calendars retrieved.");
+      logger.info("Result", JSON.stringify(result, null, 2));
       await client.close();
+      logger.endStage("google-auth");
       process.exit(0);
     }
 
     // Got a response but it's an auth error — keep waiting
-    console.log(`  Attempt ${attempt}: awaiting browser auth...`);
+    logger.info(`Attempt ${attempt}: awaiting browser auth...`);
   } catch {
-    console.log(`  Attempt ${attempt}: awaiting browser auth...`);
+    logger.info(`Attempt ${attempt}: awaiting browser auth...`);
   }
 
   await sleep(DELAY_MS);
 }
 
-console.error("\n✗ Timed out waiting for authentication (5 minutes).");
-console.log("Run this script again after completing the browser sign-in.");
+logger.error("Timed out waiting for authentication (5 minutes).");
+logger.info("Run this script again after completing the browser sign-in.");
 await client.close();
 process.exit(1);
+/* v8 ignore end */
