@@ -122,6 +122,10 @@ function shapePrOrIssue(type: string): (raw: unknown) => ActivityItem | null {
     if (repo !== undefined) {
       item.repo = repo;
     }
+    const description = getString(raw["body"]);
+    if (description) {
+      item.description = description;
+    }
     return item;
   };
 }

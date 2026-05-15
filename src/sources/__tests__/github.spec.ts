@@ -489,7 +489,10 @@ describe("collectGithubActivity — PR/issue repo resolution", () => {
 
   async function collectFirstPr(
     item: Record<string, unknown>,
-  ): Promise<{ repo?: string; title: string; url?: string } | undefined> {
+  ): Promise<
+    | { repo?: string; title: string; url?: string; description?: string }
+    | undefined
+  > {
     const manager = makeManager();
     manager.connect.mockResolvedValue(FAKE_CLIENT);
     manager.callTool.mockImplementation(
@@ -515,7 +518,12 @@ describe("collectGithubActivity — PR/issue repo resolution", () => {
     if (first === undefined) {
       return undefined;
     }
-    const out: { repo?: string; title: string; url?: string } = {
+    const out: {
+      repo?: string;
+      title: string;
+      url?: string;
+      description?: string;
+    } = {
       title: first.title,
     };
     if (first.repo !== undefined) {
@@ -523,6 +531,9 @@ describe("collectGithubActivity — PR/issue repo resolution", () => {
     }
     if (first.url !== undefined) {
       out.url = first.url;
+    }
+    if (first.description !== undefined) {
+      out.description = first.description;
     }
     return out;
   }
@@ -574,6 +585,14 @@ describe("collectGithubActivity — PR/issue repo resolution", () => {
       repository: { full_name: 42 },
     });
     expect(out?.repo).toBe("owner/fallback");
+  });
+
+  it("extracts description from body when available", async () => {
+    const out = await collectFirstPr({
+      title: "A",
+      body: "Did a thing",
+    });
+    expect(out?.description).toBe("Did a thing");
   });
 });
 
