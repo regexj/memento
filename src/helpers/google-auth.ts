@@ -6,7 +6,7 @@
  * auth succeeds. The server opens a browser for the OAuth consent flow —
  * complete it there, and this script will detect success.
  *
- * Usage: node scripts/google-auth.ts
+ * Usage: npm run auth:google
  */
 import { config } from "../../memento.config.ts";
 import { logger } from "../logger.ts";
