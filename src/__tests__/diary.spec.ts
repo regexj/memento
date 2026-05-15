@@ -3,8 +3,13 @@ import {
   formatDiaryEntry,
   getDiaryDir,
   writeDiaryEntry,
+  writeRawData,
 } from "../diary.ts";
-import type { CollectionWindow, WeeklySummary } from "../types.ts";
+import type {
+  CollectionWindow,
+  SourceResult,
+  WeeklySummary,
+} from "../types.ts";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -175,6 +180,124 @@ describe("diary", () => {
       expect(existsSync(testDir)).toBe(false);
       writeDiaryEntry(mockSummary, window, testRunDate);
       expect(existsSync(testDir)).toBe(true);
+    });
+  });
+
+  describe("writeRawData", () => {
+    const testRunDate = new Date("2025-06-15T00:00:00.000Z");
+    const testDir = join(TEST_DIARY_DIR, "2025", "06", "15");
+
+    const mockResults: SourceResult[] = [
+      {
+        source: "github",
+        data: [
+          {
+            type: "pr_merged",
+            title: "Fix login bug",
+            url: "https://github.com/org/repo/pull/42",
+            repo: "org/repo",
+          },
+        ],
+      },
+      {
+        source: "jira",
+        data: [
+          {
+            type: "ticket_completed",
+            title: "Implement auth flow",
+            ticketKey: "PROJ-123",
+            issueType: "feature",
+            storyPoints: 5,
+            epicName: "Authentication",
+          },
+        ],
+      },
+    ];
+
+    beforeEach(() => {
+      if (existsSync(testDir)) {
+        rmSync(testDir, { recursive: true });
+      }
+    });
+
+    afterEach(() => {
+      if (existsSync(testDir)) {
+        rmSync(testDir, { recursive: true });
+      }
+    });
+
+    it("creates the directory path and writes raw.json", () => {
+      const filePath = writeRawData(mockResults, testRunDate);
+
+      expect(filePath).toBe(join(testDir, "raw.json"));
+      expect(existsSync(filePath)).toBe(true);
+
+      const content = readFileSync(filePath, "utf-8");
+      const parsed = JSON.parse(content) as SourceResult[];
+      expect(parsed).toHaveLength(2);
+      expect(parsed[0].source).toBe("github");
+      expect(parsed[1].source).toBe("jira");
+    });
+
+    it("preserves the full SourceResult[] structure", () => {
+      writeRawData(mockResults, testRunDate);
+
+      const content = readFileSync(join(testDir, "raw.json"), "utf-8");
+      const parsed = JSON.parse(content) as SourceResult[];
+
+      expect(parsed[0].data[0]).toEqual({
+        type: "pr_merged",
+        title: "Fix login bug",
+        url: "https://github.com/org/repo/pull/42",
+        repo: "org/repo",
+      });
+      expect(parsed[1].data[0]).toEqual({
+        type: "ticket_completed",
+        title: "Implement auth flow",
+        ticketKey: "PROJ-123",
+        issueType: "feature",
+        storyPoints: 5,
+        epicName: "Authentication",
+      });
+    });
+
+    it("overwrites existing raw.json", () => {
+      writeRawData(mockResults, testRunDate);
+
+      const updatedResults: SourceResult[] = [
+        {
+          source: "confluence",
+          data: [
+            {
+              type: "page_created",
+              title: "New design doc",
+              spaceName: "Engineering",
+            },
+          ],
+        },
+      ];
+      writeRawData(updatedResults, testRunDate);
+
+      const content = readFileSync(join(testDir, "raw.json"), "utf-8");
+      const parsed = JSON.parse(content) as SourceResult[];
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0].source).toBe("confluence");
+    });
+
+    it("creates nested directories that do not exist", () => {
+      expect(existsSync(testDir)).toBe(false);
+      writeRawData(mockResults, testRunDate);
+      expect(existsSync(testDir)).toBe(true);
+    });
+
+    it("writes valid JSON with indentation", () => {
+      writeRawData(mockResults, testRunDate);
+
+      const content = readFileSync(join(testDir, "raw.json"), "utf-8");
+      // Verify it's indented (pretty-printed)
+      expect(content).toContain("  ");
+      // Verify it's valid JSON
+      expect(() => JSON.parse(content)).not.toThrow();
     });
   });
 });

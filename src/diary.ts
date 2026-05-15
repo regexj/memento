@@ -1,5 +1,5 @@
 import { logger } from "./logger.ts";
-import type { CollectionWindow, WeeklySummary } from "./types.ts";
+import type { CollectionWindow, SourceResult, WeeklySummary } from "./types.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -117,5 +117,27 @@ export function writeDiaryEntry(
   writeFileSync(filePath, content, "utf-8");
 
   logger.info(`Diary entry written to ${filePath}`);
+  return filePath;
+}
+
+/**
+ * Writes the collected raw source data to diary/YYYY/MM/DD/raw.json.
+ * Creates the full directory path if it does not exist.
+ * Overwrites existing raw.json if present.
+ * This should always be called regardless of --dry-run flag.
+ */
+export function writeRawData(
+  results: SourceResult[],
+  runDate: Date = new Date(),
+): string {
+  const dirPath = getDiaryDir(runDate);
+  const filePath = join(dirPath, "raw.json");
+
+  mkdirSync(dirPath, { recursive: true });
+
+  const content = JSON.stringify(results, null, 2);
+  writeFileSync(filePath, content, "utf-8");
+
+  logger.info(`Raw data written to ${filePath}`);
   return filePath;
 }
