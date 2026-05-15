@@ -108,6 +108,8 @@ export interface MementoConfig {
   mcpServers: Record<string, McpServerEntry>;
   /** Starting month (1-12) of the annual review cycle. Defaults to 1 (January). */
   reviewCycleMonth?: number;
+  /** Duration of a review cycle (e.g. "3months", "6months", "1year", "18months"). Defaults to "1year". */
+  reviewCyclePeriod?: string;
   /** Additional MCP servers with pre-configured tool calls for data collection. */
   customServers?: CustomServerEntry[];
 }
